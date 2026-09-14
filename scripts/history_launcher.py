@@ -2,7 +2,9 @@
 """Local Mac launcher. No hosted AI or scheduling dependency."""
 import argparse,os,subprocess,sys,shlex
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('mode',choices=['discover','backfill','status','fallback']);p.add_argument('--check',action='store_true');p.add_argument('--now',action='store_true',help='Start manual discovery/backfill outside the normal window');p.add_argument('--best-effort',action='store_true');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('mode',choices=['discover','backfill','status','fallback']);p.add_argument('--check',action='store_true');p.add_argument('--now',action='store_true',help='Start manual discovery/backfill outside the normal window');p.add_argument('--best-effort',action='store_true');p.add_argument('--max-threads',type=int);p.add_argument('--max-minutes',type=int);a=p.parse_args()
+if any(v is not None and v<=0 for v in (a.max_threads,a.max_minutes)):p.error('backfill limits must be positive')
+if (a.max_threads is not None or a.max_minutes is not None) and a.mode!='backfill':p.error('limits require backfill')
 if a.now and a.mode not in ('discover','backfill'):p.error('--now requires discovery or backfill')
 if a.best_effort and a.mode!='backfill':p.error('--best-effort requires backfill')
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,5 +22,7 @@ if a.mode!='status' and not (a.mode in ('discover','fallback') and (ROOT/'.secre
  result=subprocess.run([str(runtime),str(ROOT/'archive.py'),'auth'],stdin=subprocess.DEVNULL)
  if result.returncode:raise SystemExit(result.returncode)
 command='cd '+shlex.quote(remote)+' && python3 scripts/history_worker.py '+a.mode+(' --now' if a.now else '')+(' --best-effort' if a.best_effort else '')
+if a.max_threads is not None:command+=' --max-threads '+str(a.max_threads)
+if a.max_minutes is not None:command+=' --max-minutes '+str(a.max_minutes)
 try:raise SystemExit(subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,command]))
 except KeyboardInterrupt:raise SystemExit('Stopped locally; check status before restarting if the NAS worker is still finishing.')

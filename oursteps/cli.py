@@ -21,7 +21,7 @@ def compact(report):
     return {k:report[k] for k in ('threads','complete_threads','author_posts',
                                  'parsed_pages','pending_jobs','failures','gaps','halt')}
 
-def run(store, offline=False, wait=False, tids=None, fetcher_override=None):
+def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None):
     if store.setting('halt') and not offline:
         return 'halted'
     with store.db:
@@ -34,6 +34,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None):
         **compact(store.report())),ensure_ascii=False,indent=2).encode())
     try:
         while True:
+            if deadline is not None and time.monotonic()>=deadline:
+                status='budget_reached';break
             clause = ' AND url IN (SELECT url FROM snapshots)' if offline else ''
             if tids is not None:
                 clause += ' AND tid IN ('+','.join(str(int(t)) for t in tids or [0])+')'
@@ -47,7 +49,13 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None):
                 if not wait:
                     status = 'retry_pending'
                     break
-                time.sleep(min(60,due-time.time()))
+                delay=min(60,due-time.time())
+                if deadline is not None:
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0 or due-time.time()>=remaining:
+                        status='budget_reached';break
+                    delay=min(delay,remaining)
+                time.sleep(delay)
                 continue
             snap = store.latest(job['url'])
             transport_url = job['url']
@@ -59,6 +67,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None):
                     if fetcher is None:
                         fetcher = Fetcher(store,wait=wait)
                     fetcher.wait_window()
+                    if deadline is not None and time.monotonic()>=deadline:
+                        status='budget_reached';break
                     with store.db:
                         store.db.execute('UPDATE jobs SET attempts=attempts+1 WHERE url=?',(job['url'],))
                     transport_url = job['url']

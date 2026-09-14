@@ -56,7 +56,11 @@ def discover(store,now=False):
         if transient:store.set_setting('pause_until',time.time()+delay)
         return category
 
-def backfill(store,now=False,best_effort=False):
+def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None):
+    if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes)):
+        raise ValueError('backfill limits must be positive integers')
+    deadline=time.monotonic()+max_minutes*60 if max_minutes is not None else None
+    started=0
     from .cli import run
     from .preview import build
     prepare(store)
@@ -77,12 +81,19 @@ def backfill(store,now=False,best_effort=False):
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
         for tid in tids:
+            if deadline is not None and time.monotonic()>=deadline:
+                status='budget_reached';break
+            if max_threads is not None and started>=max_threads:
+                status='budget_reached';break
             with store.db:
                 store.db.execute("INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,'thread',?,1)",(thread_url(tid),tid))
                 store.db.execute("UPDATE jobs SET state='pending',error='reauth_fetch',retry_at=0 WHERE tid=? AND state='auth_required' AND error LIKE 'auth_required:%' AND retry_at<?",(tid,verified))
             eligible=store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND state IN ('pending','retry_later') AND retry_at<=?",(tid,time.time())).fetchone()
             if not eligible:continue
-            status=run(store,tids=[tid],fetcher_override=fetch)
+            started+=1
+            limits={'deadline':deadline} if deadline is not None else {}
+            status=run(store,tids=[tid],fetcher_override=fetch,**limits)
+            if status=='budget_reached':break
             if status in ('halted','waiting_window') or store.setting('halt'):break
             pause_until = float(store.setting('pause_until','0'))
             if pause_until > time.time():
@@ -90,8 +101,15 @@ def backfill(store,now=False,best_effort=False):
                 # Wait through transient site/backoff pauses instead of exiting
                 # and requiring the user to manually restart the command.
                 while pause_until > time.time():
-                    time.sleep(min(60, max(1, pause_until-time.time())))
+                    delay=min(60, max(1, pause_until-time.time()))
+                    if deadline is not None:
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0 or pause_until-time.time()>=remaining:
+                            status='budget_reached';break
+                        delay=min(delay,remaining)
+                    time.sleep(delay)
                     pause_until = float(store.setting('pause_until','0'))
+                if status=='budget_reached':break
                 status = 'partial'
                 continue
             # One attempt per due page per pass. Persistent backoff handles later retries.
