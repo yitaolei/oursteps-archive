@@ -1,0 +1,98 @@
+worker_processes 1;
+
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections 512;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    access_log /dev/stdout;
+    error_log  /dev/stderr warn;
+
+    sendfile on;
+
+    server_tokens off;
+
+    auth_basic "OurSteps Archive";
+    auth_basic_user_file /etc/nginx/oursteps.htpasswd;
+
+    map $remote_user $archive_scope {
+        default blocked;
+        ~^__OURSTEPS_RECENT_USER__$ recent-1y;
+        ~^__OURSTEPS_FULL_USER__$ full;
+    }
+    map $archive_scope $archive_root {
+        default /dev/null;
+        recent-1y /srv/public/current/recent-1y;
+        full /srv/public/current;
+    }
+    # Only flat public filenames are addressable, including after URI normalization.
+    map $uri $archive_file {
+        default /__scope_denied__;
+        / /index.html;
+        ~^/(?:[0-9]+\.html|index\.html|search-index\.json|style\.css|search\.js|reader\.js|robots\.txt)$ $uri;
+    }
+
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types text/css application/javascript application/json;
+
+    client_body_temp_path /tmp/client_temp;
+    proxy_temp_path       /tmp/proxy_temp;
+    fastcgi_temp_path     /tmp/fastcgi_temp;
+    uwsgi_temp_path       /tmp/uwsgi_temp;
+    scgi_temp_path        /tmp/scgi_temp;
+
+    server {
+        listen 8080;
+        server_name _;
+
+        root $archive_root;
+        open_file_cache off;
+        index index.html;
+
+        autoindex off;
+        add_header Cache-Control "no-store" always;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+        add_header Content-Security-Policy
+            "default-src 'none'; img-src 'self' https:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+            always;
+
+        error_page 404 = @scope_missing;
+        location @scope_missing {
+            # try_files runs AFTER Basic Auth; a rewrite-phase user check would
+            # incorrectly turn missing/wrong credentials into 403.
+            if ($archive_scope = blocked) { return 403; }
+            return 404;
+        }
+
+        location / {
+            limit_except GET HEAD {
+                deny all;
+            }
+
+            try_files $archive_file =404;
+            add_header Cache-Control "no-store" always;
+
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+            add_header Content-Security-Policy
+                "default-src 'none'; img-src 'self' https:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+                always;
+        }
+    }
+}

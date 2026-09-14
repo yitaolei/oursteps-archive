@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Portable SSH operators. Installed copies require Python 3 and existing SSH access."""
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import runpy
+# Installed helper is independent of the project mount; source uses the same module.
+_helper = Path(__file__).resolve().with_name('_oursteps_deployment.py')
+if not _helper.is_file():
+    _helper = Path(__file__).resolve().parents[2] / 'oursteps/deployment.py'
+_config = runpy.run_path(str(_helper))
+deployment, remote_python = _config['deployment'], _config['remote_python']
+import time
+
+NAS, ROOT = deployment()
+REMOTE = 'cd ' + shlex.quote(ROOT) + ' && python3 scripts/batch_operations.py'
+WAIT_LIMIT = 1800
+SSH = ['ssh', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3']
+
+
+def rpc(action, **values):
+    result = subprocess.run(SSH + [NAS, REMOTE], input=json.dumps(dict(action=action, **values)), text=True, capture_output=True)
+    try:
+        message = json.loads(result.stdout)
+    except ValueError:
+        raise RuntimeError('SSH/remote response failed; no further steps: ' + result.stderr.strip())
+    if message.get('busy'):
+        raise BlockingIOError('NAS writer active')
+    if result.returncode or not message.get('ok'):
+        raise RuntimeError(message.get('error', 'Remote operation failed'))
+    return message['result']
+
+
+def wait_call(action, **values):
+    deadline = time.monotonic() + WAIT_LIMIT
+    while True:
+        try:
+            return rpc(action, **values)
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise RuntimeError('NAS writer wait exceeded 30 minutes; rerun later')
+            print('NAS writer active; waiting 60 seconds', flush=True)
+            time.sleep(60)
+
+
+def dashboard(d):
+    lines = ['OurSteps Archive', '--------------------------------']
+    for label, value in [('Full public', d['full_public']), ('Recent-1y', d['recent_1y']), ('Active missing', d['active_missing']), ('Recovered', d['recovered']), ('Recovered/unpublished', len(d['unpublished'])), ('Review required', len(d['review'])), ('Preview pending', d['pending'])]:
+        lines.append('%-25s %s' % (label, value))
+    if d['review']:
+        lines += ['', 'Review:'] + ['%s  %s / %s' % (r['tid'], r['error'], r['recovery']) for r in d['review']]
+    r = d['reconciliation']; p = d['preview']; b = d['batch']
+    lines += ['', 'Last reconciliation (saved report):', 'State: %s | budget: %s | Busy cumulative: %s' % (r.get('run_state', 'unknown'), r.get('budget_stop_reason'), r.get('tea_busy_pauses', 'unknown')),
+              'Last batch: %s' % b.get('status', 'unavailable (prototype results not inferred)'),
+              'Last tool preview: %s articles / %s s' % (p.get('rendered_articles', 'unknown'), p.get('elapsed_seconds', 'unknown')),
+              'Current: %s' % d['current'], 'Previous: %s' % d['previous'], '', 'Next action:']
+    if d['pending']:
+        next_action = 'Inspect failure and rerun incremental preview on NAS; DO NOT PUBLISH.'
+    elif b.get('status') in ('failed', 'running'):
+        next_action = 'Inspect last batch/log before retry; a publish may already have completed.'
+    else:
+        next_action = 'run-oursteps-batch (review-required threads remain excluded)'
+    return '\n'.join(lines + [next_action])
+
+
+def run_batch(args, call=wait_call, sleep=time.sleep, now=time.time, emit=print):
+    result = dict(status='running', started_at=now(), target=args.target, tids=[], performance=dict(rounds=[],totals={},phases_seconds={}))
+    call('checkpoint', result=result)
+    try:
+        no_progress = 0
+        for round_number in range(1, args.max_rounds + 1):
+            before = call('status')
+            if before['pending']:
+                raise RuntimeError('Pending preview marker exists; inspect and recover preview manually')
+            count = len(before['unpublished'])
+            emit('Recovered/unpublished: %s / %s; round %s / %s' % (count, args.target, round_number, args.max_rounds))
+            if count >= args.target:
+                break
+            round_start=now()
+            r = call('reconcile',max_seconds=getattr(args,'reconcile_seconds',1800),max_requests=getattr(args,'reconcile_requests',240))
+            metrics=r.get('performance',{})
+            result['performance']['rounds'].append(dict(elapsed_seconds=now()-round_start,run_state=r.get('run_state'),performance=metrics))
+            for key,value in metrics.get('totals',{}).items():
+                totals=result['performance']['totals'];totals[key]=totals.get(key,0)+value
+            call('checkpoint',result=result)
+            if metrics.get('totals'):
+                totals=metrics['totals']
+                emit('Performance: network=%s fetches / %ss; throttle=%ss; parse=%ss; persistence=%ss' % tuple(totals.get(k,0) for k in ('network_fetches','network_seconds','throttle_seconds','parse_seconds','persistence_seconds')))
+            state = r.get('run_state')
+            emit('State: %s; budget: %s; imported: %s' % (state, r.get('budget_stop_reason'), r.get('imported_this_run', 0)))
+            if state not in ('retry_later', 'budget_reached', 'bounded_backfill_finished', 'recovered', 'already_archived', 'existing_incomplete', 'partial', 'review_required'):
+                raise RuntimeError('Reconciliation stopped: %s' % state)
+            after = call('status')
+            no_progress = 0 if len(after['unpublished']) > count else no_progress + 1
+            if len(after['unpublished']) >= args.target or no_progress >= 3 or round_number == args.max_rounds:
+                break
+            # A local work budget is not a server cooldown. Existing transport pacing persists.
+            retry_at=float(r.get('retry_at') or 0)
+            server_wait=state=='retry_later' or retry_at>now()
+            delay = max(60, math.ceil(retry_at-now()+15)) if server_wait else (0 if state=='budget_reached' else 60)
+            emit('Cooling down %s seconds' % delay)
+            wait_start=now()
+            if delay:sleep(delay)
+            key='retry_wait_seconds' if server_wait else 'local_round_pause_seconds'
+            totals=result['performance']['totals'];totals[key]=totals.get(key,0)+now()-wait_start
+        ready = call('status')
+        if ready['pending']:
+            raise RuntimeError('Pending preview marker; do not publish')
+        if ready['unpublished']:
+            phase_start=now()
+            p = call('preview')
+            result['performance']['phases_seconds']['preview']=now()-phase_start
+            if p.get('full_rebuild') is not False or not p.get('tids') or p.get('rendered_articles') != len(p['tids']):
+                raise RuntimeError('Unexpected incremental preview result')
+            result.update(tids=p['tids'], preview=p)
+            emit('Incremental preview: %s articles / %s seconds' % (p['rendered_articles'], p['elapsed_seconds']))
+            if call('status')['pending']:
+                raise RuntimeError('Pending preview marker; do not publish')
+            if not args.no_publish:
+                phase_start=now()
+                result['publish'] = call('publish', hashes=p['hashes'])
+                result['performance']['phases_seconds']['publish']=now()-phase_start
+                # Save immediately so later healthcheck/check failure cannot hide a completed publish.
+                call('checkpoint', result=result)
+                phase_start=now()
+                emit(call('healthcheck')['output'])
+                result['performance']['phases_seconds']['healthcheck']=now()-phase_start
+                emit(call('check', tids=p['tids'])['output'])
+        emit(call('missing')['output'])
+        result.update(status='preview_only' if args.no_publish and result['tids'] else ('complete' if result['tids'] else 'no_progress'), finished_at=now())
+        call('checkpoint', result=result)
+        return result
+    except BaseException as error:
+        result.update(status='failed', error=str(error), finished_at=now())
+        try:
+            call('checkpoint', result=result)
+        except Exception:
+            pass
+        raise
+
+
+def acquire_guard():
+    # Hold a NAS-only batch lock across rounds; closing stdin releases it, including on disconnect.
+    code = "import fcntl,sys; f=open('data/auto-batch.lock','a'); fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB); print('ready',flush=True); sys.stdin.read()"
+    process = subprocess.Popen(SSH + [NAS, 'cd ' + shlex.quote(ROOT) + ' && python3 -c ' + shlex.quote(code)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    if process.stdout.readline().strip() != 'ready':
+        process.stdin.close(); process.wait()
+        raise RuntimeError('Another batch is active or NAS unavailable; rerun later')
+    return process
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    is_status = Path(sys.argv[0]).name == 'oursteps-status'
+    if not is_status:
+        p.add_argument('--target', type=int, default=10, help='Approximate complete/unpublished target, not a crawl guarantee')
+        p.add_argument('--max-rounds', type=int, default=40, help='Bounded reconciliation rounds; stop after 3 without new complete threads')
+        p.add_argument('--reconcile-seconds',type=int,default=1800,help='Per-round work window, 1..3600 seconds; request frequency unchanged')
+        p.add_argument('--reconcile-requests',type=int,default=240,help='Per-round logical request ceiling, 1..1000; not a request rate')
+        p.add_argument('--no-publish', action='store_true', help='Crawl and preview, leaving publishing for manual operation')
+    args = p.parse_args()
+    if is_status:
+        print(dashboard(rpc('status')))
+        return
+    if args.target <= 0 or args.max_rounds <= 0:
+        p.error('target and max-rounds must be positive')
+    if not 0<args.reconcile_seconds<=3600 or not 0<args.reconcile_requests<=1000:
+        p.error('reconcile-seconds must be 1..3600; reconcile-requests must be 1..1000')
+    guard = acquire_guard()
+    log = Path.home() / 'Library/Logs/oursteps-batch.log'
+    log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with log.open('a') as handle:
+            def emit(message):
+                line = time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + str(message)
+                print(line, flush=True); handle.write(line + '\n'); handle.flush()
+            emit('Batch started')
+            try:
+                result=run_batch(args,emit=emit)
+                emit(json.dumps(dict(status=result['status'],tids=result['tids'],elapsed_seconds=result['finished_at']-result['started_at'],performance_totals=result['performance']['totals'],phases_seconds=result['performance']['phases_seconds'])))
+            except BaseException as error:
+                emit('Batch stopped: ' + str(error))
+                raise
+    finally:
+        guard.stdin.close(); guard.wait()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (RuntimeError, KeyboardInterrupt) as error:
+        raise SystemExit(str(error) or 'Interrupted; inspect oursteps-status before resuming')

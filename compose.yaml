@@ -1,0 +1,12 @@
+services:
+  archive:
+    build: .
+    user: "${ARCHIVE_UID:-1026}:${ARCHIVE_GID:-100}"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # No ports, restart policy, or recurring scheduler.
+    command: [report]

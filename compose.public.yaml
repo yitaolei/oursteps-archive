@@ -1,0 +1,37 @@
+services:
+
+  public-web:
+
+    image: nginx:alpine
+
+    container_name: oursteps-public-web
+
+    entrypoint:
+      - nginx
+
+    command:
+      - -g
+      - daemon off;
+
+    user: "101:101"
+
+    ports:
+      - "18080:8080"
+
+    volumes:
+      - ./public-site:/srv/public:ro
+      - ./nginx-public-stable.conf:/etc/nginx/nginx.conf:ro
+      - ./.secrets/oursteps.htpasswd:/etc/nginx/oursteps.htpasswd:ro
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    restart: unless-stopped

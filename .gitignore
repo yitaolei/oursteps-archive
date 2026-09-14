@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.deps/
+
+# macOS
+.DS_Store
+
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# Runtime / archive data
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Generated public output
+public-site/
+public-export/
+public-export.previous/
+.public-export.tmp-*/
+
+# Local backups / working copies
+.change-backups/
+*.bak
+*.bak-*
+*.backup
+*.old
+
+# Logs / transient runtime files
+*.log
+*.pid
+*.tmp
+*.lock
+
+# Local editor / IDE
+.vscode/
+.idea/
+
+# Local user configuration
+config.local.json
+
+# Public release temporary staging
+.public-release-*/
+
+nginx-public-stable.conf

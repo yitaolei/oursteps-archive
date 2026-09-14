@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""Installed regular file: requires SSH, not an SMB mount or local project imports."""
+import json
+from pathlib import Path
+import subprocess
+import sys
+import runpy
+# Installed helper is independent of the project mount; source uses the same module.
+_helper = Path(__file__).resolve().with_name('_oursteps_deployment.py')
+if not _helper.is_file():
+    _helper = Path(__file__).resolve().parents[2] / 'oursteps/deployment.py'
+_config = runpy.run_path(str(_helper))
+deployment, remote_python = _config['deployment'], _config['remote_python']
+
+def main():
+    name=Path(sys.argv[0]).name
+    script='scripts/reconcile_oursteps.py --stdin-args' if name=='reconcile-oursteps' else 'scripts/manual_missing.py'
+    if name not in ('check-oursteps','show-missing','reconcile-oursteps'):raise SystemExit('Unknown command name')
+    payload=sys.argv[1:] if name=='reconcile-oursteps' else dict(command=name,args=sys.argv[1:])
+    # JSON travels over stdin, never interpolated into the remote shell command.
+    return subprocess.run(['ssh',deployment()[0],remote_python(*script.split())],input=json.dumps(payload,ensure_ascii=False).encode()).returncode
+if __name__=='__main__':raise SystemExit(main())

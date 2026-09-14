@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Read-only dashboard; use the adjacent installed copy, never the SMB source."""
+from pathlib import Path
+import runpy
+namespace = runpy.run_path(str(Path(__file__).resolve().with_name('run-oursteps-batch')))
+namespace['main']()

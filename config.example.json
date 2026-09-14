@@ -1,0 +1,13 @@
+{
+  "uid": 12345,
+  "username": "example_user",
+  "display_name": "Example Author",
+  "deployment": {
+    "nas_host": "archive-user@nas.example.invalid",
+    "nas_project": "/srv/oursteps-archive"
+  },
+  "public_access": {
+    "recent_user": "recent_reader",
+    "full_user": "archive_owner"
+  }
+}
