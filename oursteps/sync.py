@@ -88,6 +88,13 @@ def sync(store,day=None,now=False):
             snap=fetch.get(url);content=store.raw(snap)
             if not identity(soup_of(content)): raise Blocked('auth_required: directory identity mismatch')
             page=dated_listing(content,url,today)
+            # Refresh known threads from this listing, including rows beyond the date cutoff.
+            # Require a valid pair so incomplete metadata cannot erase known values.
+            with store.db:
+                for row in page['threads']:
+                    if row['fid'] and row['fid'] > 0 and row.get('forum'):
+                        store.db.execute('UPDATE threads SET fid=?,forum=? WHERE tid=?',
+                                         (row['fid'],row['forum'],row['tid']))
             older=False
             for row in page['threads']:
                 tid=row['tid'];first=None;first_snap=None

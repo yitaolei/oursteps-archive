@@ -64,6 +64,38 @@ class DailyTests(unittest.TestCase):
                 self.assertEqual(calls,[directory_url(),thread_url(1902002)])
                 self.assertEqual(store.db.execute('SELECT count(*) FROM threads').fetchone()[0],2)
             store.db.close()
+    def test_known_forum_refresh_without_thread_fetch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(temp);self.addCleanup(store.db.close)
+            tid=1902000;calls=[]
+            pages={directory_url():listing([tid]),thread_url(tid):article(tid,'2026-9-8',301)}
+            class Fake:
+                mode='authenticated_private'
+                def __init__(self,*a,**k):pass
+                def get(self,url):
+                    calls.append(url)
+                    return store.snapshot(url,pages[url],mode=self.mode)
+                def wait_window(self):pass
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
+                self.assertEqual(sync(store,now=True)['newly_archived'],1)
+            before=dict(store.db.execute('SELECT * FROM threads WHERE tid=?',(tid,)).fetchone())
+            publication=tuple(store.db.execute('SELECT * FROM publication_times WHERE tid=?',(tid,)).fetchone())
+            metrics=tuple(store.db.execute('SELECT * FROM listing_metrics WHERE tid=?',(tid,)).fetchone())
+            # A later scan includes the archived thread at the older-publication cutoff.
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-09'):
+                for link in ('<a href="forum.php?mod=forumdisplay&amp;fid=44">Moved Forum</a>',
+                             '', '<a href="forum.php?mod=forumdisplay&amp;fid=45"> </a>',
+                             '<a href="forum.php?mod=forumdisplay&amp;fid=bad">Invalid</a>'):
+                    pages[directory_url()]=listing([tid]).replace(b'</th>',(link+'</th>').encode())
+                    calls.clear()
+                    result=sync(store,now=True)
+                    self.assertEqual(result['status'],'success',result)
+                    self.assertEqual(calls,[directory_url()])
+                    after=dict(store.db.execute('SELECT * FROM threads WHERE tid=?',(tid,)).fetchone())
+                    self.assertEqual(after,dict(before,fid=44,forum='Moved Forum'))
+                    self.assertEqual(tuple(store.db.execute('SELECT * FROM publication_times WHERE tid=?',(tid,)).fetchone()),publication)
+                    self.assertEqual(tuple(store.db.execute('SELECT * FROM listing_metrics WHERE tid=?',(tid,)).fetchone()),metrics)
+
     def test_timezone_crosses_sydney_midnight(self):
         from oursteps.sync import publication_time
         self.assertEqual(publication_time('发表于 2026-9-7 16:30',b'<div id="ft">GMT +0</div>'),'2026-09-08 02:30')

@@ -239,13 +239,14 @@ def parse_discovery(html, url):
             continue
         tid = int(aq['tid'])
         row = a.find_parent('tr')
-        fid = None
+        fid = forum = None
         for f in row.select('a[href]'):
             fq = query(f['href'])
             if fq.get('mod') == 'forumdisplay' and fq.get('fid', '').isdigit():
                 fid = int(fq['fid'])
+                forum = f.get_text(' ', strip=True) or None
                 break
-        records.setdefault(tid, dict(tid=tid, title=a.get_text(' ', strip=True), fid=fid))
+        records.setdefault(tid, dict(tid=tid, title=a.get_text(' ', strip=True), fid=fid, forum=forum))
     if not records:
         raise ParseError('empty_directory_unconfirmed_end')
     next_url = None
