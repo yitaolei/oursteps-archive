@@ -95,6 +95,12 @@ The updater verifies authentication, discovers current threads for the configure
 
 For unattended operation, schedule the updater using the operating system scheduler appropriate to your installation.
 
+<!-- historical-backfill-auto-publish-v1 -->
+### Historical backfill publication
+
+A successful historical backfill launched through `scripts/history_launcher.py` now completes the publication loop automatically: the existing preview rebuild finishes first, then the launcher runs the public publisher and public healthcheck. This keeps newly completed historical threads visible in the published archive without waiting for a later daily sync.
+
+
 ## Local preview
 
 Start the generated-preview server with:
