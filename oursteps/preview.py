@@ -314,59 +314,22 @@ groupSections.forEach(section=>{
 
   decorateColumns(
     columns,
-    (key,header)=>{
-      let direction;
+    key=>{
+      globalSortKey=key;
+      globalSortDir=
+        [
+          'time',
+          'views',
+          'replies'
+        ].includes(key)
+          ? 'desc'
+          : 'asc';
 
-      if(
-        section.dataset.sortKey===key
-      ){
-        direction=
-          section.dataset.sortDir==='asc'
-            ? 'desc'
-            : 'asc';
-      }else{
-        direction=
-          [
-            'time',
-            'views',
-            'replies'
-          ].includes(key)
-            ? 'desc'
-            : 'asc';
-      }
-
-      section.dataset.sortKey=key;
-      section.dataset.sortDir=
-        direction;
-
-      markHeader(
-        header,
-        key,
-        direction
-      );
-
-      const cards=[
-        ...section.querySelectorAll(
-          '.card'
-        )
-      ];
-
-      cards.sort(
-        (a,b)=>compareCards(
-          a,
-          b,
-          key,
-          direction
-        )
-      );
-
-      cards.forEach(
-        card=>section.appendChild(card)
-      );
+      setActiveRange('all');
+      enterGlobalRange('all');
     }
   );
 });
-
 
 /* -------------------------------------------------
    Time-range toolbar
@@ -477,6 +440,8 @@ let globalSortKey='time';
 let globalSortDir='desc';
 
 let globalCards=[];
+
+let preSearchState=null;
 
 function cutoffFor(range){
   if(range==='all'){
@@ -757,6 +722,7 @@ function applyVisibility(){
         visible++;
       }
     });
+
   }else{
     const selected=
       new Set(globalCards);
@@ -769,6 +735,7 @@ function applyVisibility(){
         if(!card.hidden){
           visible++;
         }
+
       }else{
         card.hidden=false;
       }
@@ -777,6 +744,24 @@ function applyVisibility(){
 
   count.textContent=
     visible+' 篇';
+
+  if(mode==='global'){
+    const q=
+      search.value
+        .toLocaleLowerCase()
+        .trim();
+
+    globalHeading.textContent=
+      q
+        ? rangeName(selectedRange)+
+          ' · 搜索结果 · '+
+          visible+
+          ' 篇'
+        : rangeName(selectedRange)+
+          ' · '+
+          globalCards.length+
+          ' 篇';
+  }
 }
 
 rangeButtons.forEach(
@@ -784,6 +769,17 @@ rangeButtons.forEach(
     button.addEventListener(
       'click',
       ()=>{
+        const q=
+          search.value
+            .toLocaleLowerCase()
+            .trim();
+
+        if(q && value==='group'){
+          setActiveRange('all');
+          enterGlobalRange('all');
+          return;
+        }
+
         setActiveRange(value);
 
         if(value==='group'){
@@ -805,14 +801,56 @@ async function handleSearchInput(){
       .trim();
 
   if(!q){
-    applyVisibility();
+    if(preSearchState){
+      const saved=preSearchState;
+      preSearchState=null;
+
+      globalSortKey=
+        saved.globalSortKey;
+
+      globalSortDir=
+        saved.globalSortDir;
+
+      setActiveRange(
+        saved.selectedRange
+      );
+
+      if(saved.mode==='group'){
+        enterGrouped();
+      }else{
+        enterGlobalRange(
+          saved.selectedRange
+        );
+      }
+
+    }else{
+      applyVisibility();
+    }
+
     return;
   }
 
-  count.textContent='正在载入全文索引…';
+  const firstSearch=
+    !preSearchState;
+
+  if(firstSearch){
+    preSearchState={
+      mode,
+      selectedRange,
+      globalSortKey,
+      globalSortDir
+    };
+
+    globalSortKey='time';
+    globalSortDir='desc';
+  }
+
+  count.textContent=
+    '正在载入全文索引…';
 
   try{
     await ensureSearchIndex();
+
   }catch(error){
     console.error(
       'Full-text search index failed to load',
@@ -824,7 +862,17 @@ async function handleSearchInput(){
     return;
   }
 
-  applyVisibility();
+  if(mode==='group'){
+    setActiveRange('all');
+    enterGlobalRange('all');
+
+  }else{
+    if(firstSearch){
+      sortGlobal();
+    }
+
+    applyVisibility();
+  }
 }
 
 search.addEventListener(
