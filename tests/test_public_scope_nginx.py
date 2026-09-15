@@ -21,6 +21,7 @@ class NginxScopeTests(unittest.TestCase):
                 (folder/'search-index.json').write_text(','.join(ids))
                 (folder/'robots.txt').write_text('User-agent: *\nDisallow: /\n')
                 for tid in ids:(folder/(tid+'.html')).write_text('article '+tid)
+            for name in ('control-center.html','control-center.css','control-center.js','control-center.json'):(current/name).write_text('owner control')
             password='temporary-fixture-only'
             auth=root/'fixture.htpasswd'
             auth.write_text(''.join(user+':'+crypt.crypt(password,crypt.mksalt(crypt.METHOD_SHA512))+'\n' for user in ['recent_reader','archive_owner','Unmapped','RECENT_READER','ARCHIVE_OWNER']))
@@ -60,6 +61,10 @@ class NginxScopeTests(unittest.TestCase):
                 self.assertEqual(get('/2.html','recent_reader'),(200,b'article 2'))
                 self.assertEqual(get('/1.html','archive_owner'),(200,b'article 1'))
                 self.assertEqual(get('/1.html','recent_reader')[0],404)
+                self.assertEqual(get('/control-center.html','archive_owner'),(200,b'owner control'))
+                self.assertEqual(get('/control-center.json','archive_owner'),(200,b'owner control'))
+                self.assertEqual(get('/control-center.html','recent_reader')[0],404)
+                self.assertEqual(get('/control-center.json','recent_reader')[0],404)
                 for path in ['/../1.html','/%2e%2e/1.html','/recent-1y/../1.html','/recent-1y/%2e%2e/1.html','/full/1.html','/current/1.html','/releases/1.html','/%252e%252e/1.html','/..%2f1.html']:
                     status,body=get(path,'recent_reader');self.assertIn(status,[400,403,404]);self.assertNotIn(b'article 1',body)
                 self.assertEqual(get('/','recent_reader',method='HEAD'),(200,b''))

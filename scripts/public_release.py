@@ -22,6 +22,7 @@ from oursteps.deployment import deployment
 from bs4 import BeautifulSoup
 
 FIXED = {'index.html', 'style.css', 'search.js', 'reader.js', 'search-index.json', 'robots.txt'}
+from oursteps.control_center import OWNER_FILES, files as control_center_files
 ARTICLE = re.compile(r'([0-9]+)\.html\Z')
 RELEASE = re.compile(r'releases/[0-9a-f]{64}\Z')
 STATIC_PRIVATE_MARKERS = (b'.secrets', b'session.json', b'archive.sqlite3', b'/data/raw')
@@ -123,7 +124,7 @@ def stage_recent(stage, allowed):
     sync_dir(recent)
 
 
-def validate(path, expected, recent=None, allow_empty=False):
+def validate(path, expected, recent=None, allow_empty=False, owner=False, require_control=False):
     require(path.is_dir() and not path.is_symlink(), 'release directory missing or symlink')
     require(stat.S_IMODE(path.stat().st_mode) == 0o755, 'release directory permissions must be 755')
     hashes = {}; tids = set()
@@ -132,13 +133,14 @@ def validate(path, expected, recent=None, allow_empty=False):
             continue
         require(item.is_file() and not item.is_symlink(), 'non-file/symlink in release: '+item.name)
         match = ARTICLE.fullmatch(item.name)
-        require(item.name in FIXED or match, 'unexpected public file: '+item.name)
+        require(item.name in FIXED or match or (owner and item.name in OWNER_FILES), 'unexpected public file: '+item.name)
         require(stat.S_IMODE(item.stat().st_mode) == 0o644, 'file permissions must be 644: '+item.name)
         data = item.read_bytes()
         require(not any(marker in data for marker in MARKERS), 'private marker in '+item.name)
         hashes[item.name] = hashlib.sha256(data).hexdigest()
         if match: tids.add(match[1])
     require(FIXED <= set(hashes), 'missing fixed assets')
+    if require_control: require(OWNER_FILES <= set(hashes), 'missing owner control-center assets')
     require(tids == set(expected) and (tids or allow_empty), 'article TIDs differ from expected complete threads')
     require((path/'robots.txt').read_bytes() == ROBOTS, 'robots must remain Disallow /')
     soup = BeautifulSoup((path/'index.html').read_bytes(), 'html.parser')
@@ -164,7 +166,7 @@ def validate(path, expected, recent=None, allow_empty=False):
     result = dict(articles=len(tids), cards=len(cards), search_entries=len(index), hashes=hashes)
     if recent is not None:
         require(set(recent['allowed']) <= tids, 'recent TIDs outside full scope')
-        scoped = validate(path/'recent-1y', recent['allowed'], allow_empty=True)
+        scoped = validate(path/'recent-1y', recent['allowed'], allow_empty=True, owner=False)
         for name, digest in scoped['hashes'].items():
             if name not in {'index.html', 'search-index.json'}:
                 require(digest == hashes.get(name), 'scoped article/static differs from full source: '+name)
@@ -187,7 +189,7 @@ def config_check(root):
     nginx = (root/'nginx-public-stable.conf').read_text()
     recent_user, full_user = public_access()
     for token in ('root $archive_root;'
-                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;'):
+                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json'):
         require(token in nginx, 'missing nginx contract: '+token)
 
 
@@ -228,7 +230,8 @@ def metadata(root, target):
 def validate_saved(root, target):
     report = json.loads(metadata(root,target).read_text())
     expected = {ARTICLE.fullmatch(n)[1] for n in report['hashes'] if ARTICLE.fullmatch(n)}
-    actual = validate(root/'public-site'/target, expected, report.get('recent'))
+    require_control = OWNER_FILES <= set(report.get('hashes', {}))
+    actual = validate(root/'public-site'/target, expected, report.get('recent'), owner=True, require_control=require_control)
     require(actual['hashes'] == report['hashes'], 'release manifest checksum mismatch')
     digest = hashlib.sha256(json.dumps(actual['hashes'],sort_keys=True).encode()).hexdigest()
     require(Path(target).name == digest, 'release identity checksum mismatch')
@@ -272,6 +275,8 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                 source_hashes[item.name] = hashlib.sha256(item.read_bytes()).hexdigest()
         source_tids = {ARTICLE.fullmatch(n)[1] for n in source_hashes if ARTICLE.fullmatch(n)}
         require(source_tids == set(expected), 'preview does not match complete TIDs')
+        owner_content = control_center_files(root, len(expected), len(recent['allowed']))
+        source_hashes.update({name:hashlib.sha256(data).hexdigest() for name,data in owner_content.items()})
         if (old_report and old_report.get('recent', {}).get('allowed') == recent['allowed']
                 and source_hashes == {name:digest for name,digest in old_report['hashes'].items() if '/' not in name}):
             return {'status':'unchanged', 'release':old, 'articles':old_report['articles'],
@@ -290,14 +295,16 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                         shutil.copyfileobj(src,dst); dst.flush(); os.fsync(dst.fileno())
                     (stage/item.name).chmod(0o644)
             write_atomic(stage/'robots.txt', ROBOTS); (stage/'robots.txt').chmod(0o644)
-            validate(stage,expected)
+            for name,data in owner_content.items():
+                write_atomic(stage/name,data); (stage/name).chmod(0o644)
+            validate(stage,expected,owner=True,require_control=True)
             stage_recent(stage, set(recent['allowed']))
-            report = validate(stage,expected,recent)
+            report = validate(stage,expected,recent,owner=True,require_control=True)
             release_id = hashlib.sha256(json.dumps(report['hashes'],sort_keys=True).encode()).hexdigest()
             target = 'releases/'+release_id
             dest = site/target
             if dest.exists():
-                require(validate(dest,expected,recent)['hashes'] == report['hashes'], 'existing release changed')
+                require(validate(dest,expected,recent,owner=True,require_control=True)['hashes'] == report['hashes'], 'existing release changed')
             else:
                 sync_dir(stage); os.rename(str(stage),str(dest)); sync_dir(site/'releases')
             write_atomic(metadata(root,target),json.dumps(report,sort_keys=True).encode())

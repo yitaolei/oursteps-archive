@@ -96,6 +96,13 @@ class ScopeTests(PublicTests):
     def test_scopes_and_rolling_hash(self):
         first=self.publish();dest=self.root/'public-site'/first['release']
         self.assertTrue((dest/'recent-1y/1902000.html').exists())
+        for name in pub.OWNER_FILES:
+            self.assertTrue((dest/name).is_file())
+            self.assertFalse((dest/'recent-1y'/name).exists())
+        control=json.loads((dest/'control-center.json').read_text())
+        self.assertEqual(control['mode'],'read_only_static_snapshot')
+        self.assertEqual(control['archive']['full_public'],1)
+        self.assertEqual(control['archive']['recent_1y'],1)
         for name in pub.FIXED-{'index.html','search-index.json'} | {'1902000.html'}:
             full=dest/name;recent=dest/'recent-1y'/name
             self.assertEqual(full.stat().st_ino,recent.stat().st_ino)

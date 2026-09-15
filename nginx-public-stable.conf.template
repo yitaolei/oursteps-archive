@@ -34,7 +34,7 @@ http {
     map $uri $archive_file {
         default /__scope_denied__;
         / /index.html;
-        ~^/(?:[0-9]+\.html|index\.html|search-index\.json|style\.css|search\.js|reader\.js|robots\.txt)$ $uri;
+        ~^/(?:[0-9]+\.html|index\.html|search-index\.json|style\.css|search\.js|reader\.js|robots\.txt|control-center\.html|control-center\.css|control-center\.js|control-center\.json)$ $uri;
     }
 
     gzip on;

@@ -73,7 +73,9 @@ Create and maintain this operations guide plus `config/tool_registry.json` as th
 
 ### Phase 2 — 8448 Control Center (read-only first)
 
-Add an authenticated control-center surface to the existing 8448 site using registry-backed, explicitly allowlisted read-only status functions first. It must not expose shell access, arbitrary paths, secrets, raw SQLite, or unrestricted command execution. Existing archive browsing and role scopes must remain unchanged.
+Implemented as an owner-only static control surface rather than a new executable API service. Each public publish generates `control-center.html`, `control-center.css`, `control-center.js`, and a sanitized `control-center.json` snapshot into the full archive release only. The recent/tester scope does not contain these files, so the existing filesystem scope boundary returns 404 there. The snapshot exposes only allowlisted counts/state fields and scheduler descriptions; raw errors, paths, credentials, sessions, arbitrary SQL and shell execution are excluded.
+
+The nginx allowlist must include the four control-center files. After this change is deployed, the existing `oursteps-public-web` container needs one restart/recreate to reload its nginx configuration; static publishing alone does not reload a running nginx process.
 
 ### Phase 3 — Article Analytics / 本站阅读次数
 

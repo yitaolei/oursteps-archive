@@ -180,6 +180,8 @@ Prefer focused tests while iterating and broader validation before a release. So
 
 Operator workflows, active scheduler relationships, safety boundaries, and the four-phase close-out roadmap are documented in [`OPERATIONS.md`](OPERATIONS.md). A public-safe machine-readable capability inventory lives in [`config/tool_registry.json`](config/tool_registry.json); it contains no credentials and does not itself grant execution authority.
 
+The Phase 2 Control Center is implemented as owner-only static release assets (`/control-center.html` plus a sanitized JSON snapshot), preserving the existing read-only nginx architecture and recent/full role separation.
+
 ## Project status
 
 The project supports ongoing incremental archiving, local preview generation, historical reconciliation, and isolated static publishing.

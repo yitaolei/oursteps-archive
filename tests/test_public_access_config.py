@@ -42,6 +42,8 @@ class PublicAccessTests(unittest.TestCase):
             output = render(output=root / 'nginx-public-stable.conf')
             self.assertEqual(output.read_text(), expected)
             config_check(root)
+            output.write_text(expected.replace('control-center\\.json', 'control-center-blocked.json'))
+            with self.assertRaises(ValueError): config_check(root)
             output.write_text(expected.replace('~^recent_reader$', '~*^recent_reader$'))
             with self.assertRaises(ValueError): config_check(root)
 

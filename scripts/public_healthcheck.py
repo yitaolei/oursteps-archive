@@ -5,7 +5,7 @@ try:
     config_check(ROOT)
     site=ROOT/'public-site'; current=pointer(site,'current'); previous=pointer(site,'previous')
     if not current or not previous: raise ValueError('current/previous not initialized')
-    result=validate(site/current,expected_tids(ROOT),recent_policy(publication_dates(ROOT)))
+    result=validate(site/current,expected_tids(ROOT),recent_policy(publication_dates(ROOT)),owner=True,require_control=True)
     validate_saved(ROOT,current);validate_saved(ROOT,previous)
     print('Recent: %s; cutoff: %s; excluded missing dates: %s' % (result['recent_articles'], result['recent']['cutoff'], result['recent']['excluded_missing_dates']))
     print('PASS: %s articles/cards/search entries; allowlist, private markers, 644/755, robots, search contracts, mounts, current/previous and checksums' % result['articles'])
