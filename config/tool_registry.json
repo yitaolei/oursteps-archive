@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "purpose": "Public-safe registry of supported OurSteps Archive operational capabilities. This file contains no credentials and does not itself grant execution authority.",
+  "control_center_policy": {
+    "default": "deny",
+    "phase_2": "read_only_allowlist_only",
+    "phase_4": "explicit_safe_actions_only",
+    "arbitrary_shell": false,
+    "arbitrary_paths": false,
+    "secret_access": false,
+    "direct_public_sqlite_access": false
+  },
+  "protected_boundaries": [
+    "8448 archive browsing and existing role scopes",
+    "OSowner/OStester configured access separation",
+    "Guide Discovery V2 behavior and schedule",
+    "historical backfill limits, locks, retry/backoff and auto-publish chain",
+    "incremental sync workflow",
+    "FoxCloud HTTPS 8443",
+    "private NAS SQLite/raw/session/log data"
+  ],
+  "tools": [
+    {
+      "id": "archive_status",
+      "label": "Archive Status",
+      "category": "status",
+      "safety": "read_only",
+      "entry_point": "scripts/mac-tools/oursteps-status",
+      "control_center": "phase_2_candidate",
+      "confirmation": false,
+      "notes": "Read-only production dashboard over SSH/NAS-native operations."
+    },
+    {
+      "id": "historical_live_status",
+      "label": "Historical Backfill Live Status",
+      "category": "status",
+      "safety": "read_only",
+      "entry_point": "scripts/backfill_live_status.py",
+      "control_center": "phase_2_candidate",
+      "confirmation": false,
+      "notes": "Read-only historical worker/progress status."
+    },
+    {
+      "id": "public_healthcheck",
+      "label": "Public Release Healthcheck",
+      "category": "health",
+      "safety": "read_only",
+      "entry_point": "scripts/public_healthcheck.py",
+      "control_center": "phase_2_candidate",
+      "confirmation": false,
+      "notes": "Validates the current static public release and safety contracts."
+    },
+    {
+      "id": "show_missing",
+      "label": "Show Missing / Review Queue",
+      "category": "status",
+      "safety": "read_only",
+      "entry_point": "scripts/mac-tools/show-missing",
+      "control_center": "phase_2_candidate",
+      "confirmation": false,
+      "notes": "Inspection only; ambiguous review_required items must not be forced complete."
+    },
+    {
+      "id": "guide_discovery_v2",
+      "label": "Guide Discovery V2",
+      "category": "discovery",
+      "safety": "mutating_bounded",
+      "entry_point": "scripts/history_launcher.py guide-discover",
+      "schedule": "03:15 daily; max 25 pages / 20 minutes in current LaunchAgent",
+      "control_center": "phase_4_candidate",
+      "confirmation": true,
+      "notes": "Resumable historical candidate discovery. Preserve throttle/backoff and existing scheduler."
+    },
+    {
+      "id": "incremental_sync",
+      "label": "Incremental Sync Now",
+      "category": "sync",
+      "safety": "mutating_production",
+      "entry_point": "scripts/update_now.py --now",
+      "schedule": "06:00-22:00 every two hours in current LaunchAgent",
+      "control_center": "phase_4_candidate",
+      "confirmation": true,
+      "notes": "Normal authenticated incremental archive/update publication workflow."
+    },
+    {
+      "id": "historical_backfill",
+      "label": "Historical Backfill",
+      "category": "backfill",
+      "safety": "mutating_bounded",
+      "entry_point": "scripts/history_launcher.py backfill --best-effort --now",
+      "schedule": "07:00-21:00 every two hours; max 5 threads / 45 minutes in current LaunchAgent",
+      "control_center": "phase_4_candidate",
+      "confirmation": true,
+      "notes": "Successful backfill already performs preview -> publish -> public healthcheck. Do not duplicate publication."
+    },
+    {
+      "id": "publish_public",
+      "label": "Publish Public Release",
+      "category": "publication",
+      "safety": "mutating_production",
+      "entry_point": "scripts/publish_public.py",
+      "control_center": "phase_4_candidate",
+      "confirmation": true,
+      "notes": "Atomic validated static publication using existing locks and release checks."
+    },
+    {
+      "id": "rollback_public",
+      "label": "Rollback Public Release",
+      "category": "publication",
+      "safety": "mutating_high_impact",
+      "entry_point": "scripts/publish_public.py --rollback",
+      "control_center": "phase_4_candidate",
+      "confirmation": true,
+      "notes": "High-impact recovery action. Require explicit authorization and clear current/previous release display before execution."
+    },
+    {
+      "id": "authenticate",
+      "label": "Authenticate OurSteps",
+      "category": "authentication",
+      "safety": "secret_bearing_local_only",
+      "entry_point": "Authenticate OurSteps.command",
+      "control_center": "never",
+      "confirmation": true,
+      "notes": "Keep local to the Mac authentication workflow. Never expose Keychain/session material through 8448."
+    }
+  ]
+}

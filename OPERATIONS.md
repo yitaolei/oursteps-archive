@@ -1,0 +1,106 @@
+# OurSteps Archive Operations
+
+This is the operator-facing map for the production OurSteps Archive system. It records supported entry points, schedules, safety boundaries, and the staged control-center plan without exposing private deployment credentials.
+
+## Production boundaries
+
+- Public archive: HTTPS port `8448`.
+- Existing role scopes must remain intact, including the configured owner/full-archive and tester/recent-access accounts.
+- FoxCloud on HTTPS port `8443` is outside this project and must not be changed.
+- Private archive data remains on the NAS. Do not expose SQLite, raw HTML, logs, cookies, sessions, Keychain material, or private deployment configuration through the public site.
+- Run SQLite production reads/writes on the NAS-native filesystem. Avoid direct live SQLite access through the macOS SMB mount while a NAS worker may write.
+- Preserve existing crawler throttling, robots handling, authentication checks, locks, retry/backoff, review-required states, and role-scoped publishing.
+
+## Current automated workflows
+
+| Workflow | LaunchAgent | Schedule | Entry point | Production effect |
+| --- | --- | --- | --- | --- |
+| Guide Discovery V2 | `local.oursteps.guide-discovery` | 03:15 daily | `scripts/history_launcher.py guide-discover --max-pages 25 --max-minutes 20` | Discovers candidate historical TIDs only; resumable and bounded. |
+| Incremental sync | `local.oursteps.incremental-sync` | 06:00, then every 2 hours through 22:00 | `scripts/update_now.py --now` | Authenticates, syncs current content, updates preview/publication using existing production workflow. |
+| Historical backfill | `local.oursteps.historical-backfill` | 07:00, then every 2 hours through 21:00 | `scripts/history_launcher.py backfill --best-effort --now --max-threads 5 --max-minutes 45` | Bounded historical backfill. Successful completion proceeds through preview, public publish, then public healthcheck. |
+
+The schedules above describe the currently loaded Mac mini LaunchAgents. Do not silently replace them from an older installer template.
+
+## Supported manual entry points
+
+### Read-only / inspection
+
+- `Historical Archive Status.command`
+- `Historical Backfill Live Status.command`
+- installed `oursteps-status`
+- installed `show-missing`
+- `python3 scripts/public_healthcheck.py` on the NAS
+- normal `git status`, log inspection, JSON/SQLite read-only queries executed NAS-side
+
+### Controlled write operations
+
+- `Authenticate OurSteps.command` — updates the dedicated authenticated session only after identity verification.
+- `Update OurSteps Now.command` — runs the normal incremental workflow immediately.
+- `Historical Backfill.command` — bounded best-effort backfill using the existing launcher.
+- `Discover All OurSteps Threads.command` and `Discover Remaining OurSteps Threads.command` — legacy/specialized discovery entry points; do not substitute them for Guide V2 without a demonstrated need.
+- `python3 scripts/publish_public.py` — controlled atomic publication using existing validation/locks.
+- `python3 scripts/publish_public.py --rollback` — publication rollback only; use after inspection of a bad release.
+
+## Production publication chain
+
+Normal successful paths converge on the same protected static publication layer:
+
+1. private NAS archive state
+2. generated preview/static candidates
+3. `scripts/publish_public.py`
+4. release validation and atomic current/previous switch
+5. `scripts/public_healthcheck.py`
+6. nginx serves the validated static release on `8448`
+
+Historical backfill now performs publish + healthcheck automatically after a successful backfill. Do not add a second duplicate publish step to that scheduler.
+
+## Operator rules
+
+1. Prefer Terminal/Desktop Commander for status checks, logs, existing tests, read-only SQLite queries, launchd inspection, and other routine operations.
+2. Use Codex for necessary code changes, cross-file diagnosis, refactoring, or genuinely new tests; do not spend Codex tokens waiting on commands or re-reading completed work.
+3. Before code changes, inspect `git status`, `STATUS.md`, `PROJECT_HANDOFF.md`, this file, and the relevant implementation file.
+4. Do not redo completed Search / Global Sorting UX, Guide V2, or historical scheduler work unless a regression is demonstrated.
+5. After an important code or documentation change: run focused tests/validation, update the handoff/status documentation, commit, and push `main` so Codex and future sessions see the same checkpoint.
+6. Never force ambiguous content complete merely to improve counts. Preserve `review_required` / partial states where evidence conflicts.
+
+## Control Center roadmap
+
+The project close-out is intentionally staged:
+
+### Phase 1 — Documentation & Tool Registry
+
+Create and maintain this operations guide plus `config/tool_registry.json` as the machine-readable inventory of supported operational tools. Phase 1 changes documentation/metadata only and must not alter production behavior.
+
+### Phase 2 — 8448 Control Center (read-only first)
+
+Add an authenticated control-center surface to the existing 8448 site using registry-backed, explicitly allowlisted read-only status functions first. It must not expose shell access, arbitrary paths, secrets, raw SQLite, or unrestricted command execution. Existing archive browsing and role scopes must remain unchanged.
+
+### Phase 3 — Article Analytics / 本站阅读次数
+
+Add first-party archive reading analytics separately from source-forum view counts. The UI and data model must clearly distinguish OurSteps/source views from reads on this archive. Analytics must not weaken public/static isolation or leak reader identity unnecessarily.
+
+### Phase 4 — Safe Action Buttons
+
+Only after the read-only control center is validated, add narrowly scoped action buttons backed by explicit registry actions. Every write action must define authorization, confirmation, locking/idempotency behavior, timeout/error reporting, and a safe failure mode. No arbitrary shell command field is permitted.
+
+## Tool registry contract
+
+`config/tool_registry.json` is a public-safe capability registry, not a credential store. Each entry declares:
+
+- stable tool ID and label
+- category and safety level
+- read-only versus mutating behavior
+- supported entry point
+- whether it is suitable for the future 8448 control center
+- confirmation/authentication expectations
+- operational notes and protected boundaries
+
+A registry entry does not by itself authorize execution. Phase 2/4 server code must additionally enforce its own allowlist and role checks.
+
+## Stable completed checkpoints
+
+- `87a592c` — preview global search and sorting UX; complete and production validated.
+- `94043e4` — historical backfill automatically publishes and healthchecks after successful completion.
+- `af4b006` — documentation checkpoint for historical backfill auto-publish; Phase 1 starts from this clean `main` state.
+
+See `STATUS.md`, `PROJECT_HANDOFF.md`, `PUBLIC_PUBLISH.md`, and `AUTO_BATCH_OPERATIONS.md` for deeper implementation history.
