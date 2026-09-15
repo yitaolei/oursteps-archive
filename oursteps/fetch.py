@@ -131,6 +131,9 @@ def validate_url(url):
     u, q = urlsplit(url), query(url)
     if u.scheme != 'https' or u.netloc != 'www.oursteps.com.au' or u.username or u.password:
         raise Blocked('off_origin_url')
+    from .guide_discovery import is_guide_url
+    if is_guide_url(url):
+        return
     if u.path == '/bbs/search.php' and q.get('mod')=='forum' and q.get('adv')=='yes' and set(q)<={'mod','adv'}:
         return
     if u.path == '/robots.txt' and not u.query:
