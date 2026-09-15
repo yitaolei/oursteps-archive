@@ -27,5 +27,11 @@ command='cd '+shlex.quote(remote)+' && python3 scripts/history_worker.py '+a.mod
 if a.max_pages is not None:command+=' --max-pages '+str(a.max_pages)
 if a.max_threads is not None:command+=' --max-threads '+str(a.max_threads)
 if a.max_minutes is not None:command+=' --max-minutes '+str(a.max_minutes)
-try:raise SystemExit(subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,command]))
+try:
+    code=subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,command])
+    if code:raise SystemExit(code)
+    if a.mode=='backfill':
+        publish='cd '+shlex.quote(remote)+' && python3 scripts/publish_public.py && python3 scripts/public_healthcheck.py'
+        code=subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,publish])
+    raise SystemExit(code)
 except KeyboardInterrupt:raise SystemExit('Stopped locally; check status before restarting if the NAS worker is still finishing.')
