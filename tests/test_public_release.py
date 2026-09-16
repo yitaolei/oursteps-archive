@@ -109,6 +109,8 @@ class ScopeTests(PublicTests):
             self.assertEqual(recent.stat().st_mode & 0o777,0o644)
             private=self.root/'data/preview'/name
             if private.exists():self.assertNotEqual(private.stat().st_ino,recent.stat().st_ino)
+        self.assertTrue((dest/'article-views.json').is_file())
+        self.assertTrue((dest/'recent-1y/article-views.json').is_file())
         for name in ('index.html','search-index.json'):
             self.assertNotEqual((dest/name).stat().st_ino,(dest/'recent-1y'/name).stat().st_ino)
         second=pub.publish(self.root,expected={'1902000'},dates={'1902000':None},today='2026-09-12')

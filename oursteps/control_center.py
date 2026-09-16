@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import sqlite3
+from oursteps.analytics import counts as analytics_counts
 
 OWNER_FILES = {"control-center.html", "control-center.css", "control-center.js", "control-center.json"}
 
@@ -9,7 +10,7 @@ HTML = '''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta na
 
 CSS = '''*{box-sizing:border-box}body{margin:0;background:#f6f7f9;color:#18202a;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1080px;margin:0 auto;padding:28px 20px 60px}header{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:24px}header a{color:#315f91;text-decoration:none}h1{font-size:30px;margin:8px 0 2px}h2{font-size:19px;margin:26px 0 10px}.badge{font-size:12px;font-weight:700;letter-spacing:.08em;border:1px solid #8a9aab;border-radius:999px;padding:6px 10px;background:#fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.card,.panel{background:#fff;border:1px solid #dfe4ea;border-radius:10px;padding:16px}.value{font-size:28px;font-weight:700;margin-top:4px}.label{color:#637083;font-size:13px}.rows{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:7px 16px}.rows div:nth-child(odd){color:#637083}.ok{color:#24713f}.warn{color:#8a5b00}.safety{border-left:4px solid #7c8da1}.error{background:#fff0f0;border:1px solid #dca5a5;padding:14px;border-radius:8px}@media(max-width:600px){header{display:block}.badge{display:inline-block;margin-top:12px}.rows{grid-template-columns:1fr}.rows div:nth-child(odd){margin-top:8px}}'''
 
-JS = '''const el=id=>document.getElementById(id);const safe=v=>v===null||v===undefined||v===''?'—':String(v);function card(label,value,cls=''){return `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${safe(value)}</div></div>`}function rows(items){return `<div class="rows">${items.map(([k,v])=>`<div>${k}</div><div>${safe(v)}</div>`).join('')}</div>`}fetch('/control-center.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}).then(d=>{el('summary').innerHTML=[card('公开文章',d.archive.full_public),card('最近 1 年',d.archive.recent_1y),card('待补 / Missing',d.archive.active_missing,d.archive.active_missing?'warn':'ok'),card('需人工复核',d.archive.review_required,d.archive.review_required?'warn':'ok'),card('Preview Pending',d.archive.preview_pending?'YES':'NO',d.archive.preview_pending?'warn':'ok'),card('已知 Inventory',d.archive.inventory_total)].join('');const g=d.guide||{};el('guide').innerHTML=rows([['状态',g.state],['下一页',g.next_page],['上次完成页',g.last_end],['上次新增 TID',g.new_tids],['Guide 已发现 TID',g.discovered_tids],['最近成功',g.last_success],['Retry at',g.retry_at],['错误状态',g.has_error?'YES':'NO']]);el('schedules').innerHTML=rows((d.schedules||[]).flatMap(x=>[[x.label,x.schedule]]));}).catch(e=>{el('error').hidden=false;el('error').textContent='Control Center 状态读取失败：'+e.message});'''
+JS = '''const el=id=>document.getElementById(id);const safe=v=>v===null||v===undefined||v===''?'—':String(v);function card(label,value,cls=''){return `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${safe(value)}</div></div>`}function rows(items){return `<div class="rows">${items.map(([k,v])=>`<div>${k}</div><div>${safe(v)}</div>`).join('')}</div>`}fetch('/control-center.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}).then(d=>{el('summary').innerHTML=[card('公开文章',d.archive.full_public),card('最近 1 年',d.archive.recent_1y),card('待补 / Missing',d.archive.active_missing,d.archive.active_missing?'warn':'ok'),card('需人工复核',d.archive.review_required,d.archive.review_required?'warn':'ok'),card('Preview Pending',d.archive.preview_pending?'YES':'NO',d.archive.preview_pending?'warn':'ok'),card('已知 Inventory',d.archive.inventory_total),card('本站总阅读',d.analytics.total_reads)].join('');const g=d.guide||{};el('guide').innerHTML=rows([['状态',g.state],['下一页',g.next_page],['上次完成页',g.last_end],['上次新增 TID',g.new_tids],['Guide 已发现 TID',g.discovered_tids],['最近成功',g.last_success],['Retry at',g.retry_at],['错误状态',g.has_error?'YES':'NO']]);el('schedules').innerHTML=rows((d.schedules||[]).flatMap(x=>[[x.label,x.schedule]]));}).catch(e=>{el('error').hidden=false;el('error').textContent='Control Center 状态读取失败：'+e.message});'''
 
 def _ro(path):
     db=sqlite3.connect(Path(path).resolve().as_uri()+"?mode=ro", uri=True, timeout=5)
@@ -65,7 +66,8 @@ def snapshot(root, full_public, recent_1y):
     for tool in registry.get('tools',[]):
         if tool.get('id') in {'guide_discovery_v2','incremental_sync','historical_backfill'} and isinstance(tool.get('schedule'),str):
             schedules.append({"id":tool['id'],"label":str(tool.get('label',tool['id'])),"schedule":tool['schedule']})
-    result.update(archive=archive,guide=guide,schedules=schedules)
+    views=analytics_counts(root)
+    result.update(archive=archive,guide=guide,schedules=schedules,analytics={'total_reads':sum(views.values()),'tracked_articles':len(views)})
     return result
 
 def files(root, full_public, recent_1y):

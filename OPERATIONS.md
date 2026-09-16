@@ -106,3 +106,7 @@ A registry entry does not by itself authorize execution. Phase 2/4 server code m
 - `af4b006` — documentation checkpoint for historical backfill auto-publish; Phase 1 starts from this clean `main` state.
 
 See `STATUS.md`, `PROJECT_HANDOFF.md`, `PUBLIC_PUBLISH.md`, and `AUTO_BATCH_OPERATIONS.md` for deeper implementation history.
+
+## Phase 3 — Article Analytics implementation
+
+First-party article reads are counted from a dedicated nginx access log mounted at `data/public-analytics/`. The log format is intentionally minimal: timestamp, article URI/TID, and HTTP status only. No IP address, Basic Auth username, User-Agent, Cookie, or session data is recorded. Only successful `GET /<tid>.html` rows count. The generated `article-views.json` is public-safe and contains TID-to-count mappings only; article pages render this as `本站阅读`, distinct from the source-forum `浏览` metric.

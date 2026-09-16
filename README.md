@@ -182,6 +182,10 @@ Operator workflows, active scheduler relationships, safety boundaries, and the f
 
 The Phase 2 Control Center is implemented as owner-only static release assets (`/control-center.html` plus a sanitized JSON snapshot), preserving the existing read-only nginx architecture and recent/full role separation.
 
+## First-party article read analytics
+
+The public nginx layer records privacy-minimal article page loads in a private NAS log: only timestamp, article path/TID, and HTTP status are retained. IP address, authenticated username, and User-Agent are deliberately excluded. Successful article GETs are aggregated into the generated `article-views.json`; article pages label this separately as `本站阅读`, while the existing `浏览` value continues to mean the source OurSteps forum view count.
+
 ## Project status
 
 The project supports ongoing incremental archiving, local preview generation, historical reconciliation, and isolated static publishing.

@@ -17,12 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'.deps')]
 from oursteps.deployment import public_access
 from oursteps.dates import sydney_today
-from oursteps.preview import parsed_date
+from oursteps.preview import parsed_date, READER_JS
 from oursteps.deployment import deployment
 from bs4 import BeautifulSoup
 
 FIXED = {'index.html', 'style.css', 'search.js', 'reader.js', 'search-index.json', 'robots.txt'}
+PUBLIC_GENERATED = {'article-views.json'}
 from oursteps.control_center import OWNER_FILES, files as control_center_files
+from oursteps.analytics import payload as analytics_payload
 ARTICLE = re.compile(r'([0-9]+)\.html\Z')
 RELEASE = re.compile(r'releases/[0-9a-f]{64}\Z')
 STATIC_PRIVATE_MARKERS = (b'.secrets', b'session.json', b'archive.sqlite3', b'/data/raw')
@@ -102,7 +104,7 @@ def recent_policy(dates, today=None):
 
 def stage_recent(stage, allowed):
     recent = stage/'recent-1y'; directory(recent)
-    for name in FIXED-{'index.html','search-index.json'} | {tid+'.html' for tid in allowed}:
+    for name in (FIXED-{'index.html','search-index.json'}) | PUBLIC_GENERATED | {tid+'.html' for tid in allowed}:
         # Stage files are already durable, validated 0644 public content.
         # Link only within the immutable release, never to private preview/raw.
         os.link(stage/name, recent/name)
@@ -124,7 +126,7 @@ def stage_recent(stage, allowed):
     sync_dir(recent)
 
 
-def validate(path, expected, recent=None, allow_empty=False, owner=False, require_control=False):
+def validate(path, expected, recent=None, allow_empty=False, owner=False, require_control=False, require_generated=False):
     require(path.is_dir() and not path.is_symlink(), 'release directory missing or symlink')
     require(stat.S_IMODE(path.stat().st_mode) == 0o755, 'release directory permissions must be 755')
     hashes = {}; tids = set()
@@ -133,13 +135,14 @@ def validate(path, expected, recent=None, allow_empty=False, owner=False, requir
             continue
         require(item.is_file() and not item.is_symlink(), 'non-file/symlink in release: '+item.name)
         match = ARTICLE.fullmatch(item.name)
-        require(item.name in FIXED or match or (owner and item.name in OWNER_FILES), 'unexpected public file: '+item.name)
+        require(item.name in FIXED or item.name in PUBLIC_GENERATED or match or (owner and item.name in OWNER_FILES), 'unexpected public file: '+item.name)
         require(stat.S_IMODE(item.stat().st_mode) == 0o644, 'file permissions must be 644: '+item.name)
         data = item.read_bytes()
         require(not any(marker in data for marker in MARKERS), 'private marker in '+item.name)
         hashes[item.name] = hashlib.sha256(data).hexdigest()
         if match: tids.add(match[1])
     require(FIXED <= set(hashes), 'missing fixed assets')
+    if require_generated: require(PUBLIC_GENERATED <= set(hashes), 'missing generated public assets')
     if require_control: require(OWNER_FILES <= set(hashes), 'missing owner control-center assets')
     require(tids == set(expected) and (tids or allow_empty), 'article TIDs differ from expected complete threads')
     require((path/'robots.txt').read_bytes() == ROBOTS, 'robots must remain Disallow /')
@@ -166,7 +169,7 @@ def validate(path, expected, recent=None, allow_empty=False, owner=False, requir
     result = dict(articles=len(tids), cards=len(cards), search_entries=len(index), hashes=hashes)
     if recent is not None:
         require(set(recent['allowed']) <= tids, 'recent TIDs outside full scope')
-        scoped = validate(path/'recent-1y', recent['allowed'], allow_empty=True, owner=False)
+        scoped = validate(path/'recent-1y', recent['allowed'], allow_empty=True, owner=False, require_generated=require_generated)
         for name, digest in scoped['hashes'].items():
             if name not in {'index.html', 'search-index.json'}:
                 require(digest == hashes.get(name), 'scoped article/static differs from full source: '+name)
@@ -182,14 +185,14 @@ def config_check(root):
     compose = (root/'compose.public.yaml').read_text()
     block = compose.split('    volumes:',1)[1].split('    read_only:',1)[0]
     mounts = [line.strip()[2:] for line in block.splitlines() if line.strip().startswith('- ')]
-    require(set(mounts) == {'./public-site:/srv/public:ro', './nginx-public-stable.conf:/etc/nginx/nginx.conf:ro', './.secrets/oursteps.htpasswd:/etc/nginx/oursteps.htpasswd:ro'}, 'unexpected nginx mounts')
+    require(set(mounts) == {'./public-site:/srv/public:ro', './nginx-public-stable.conf:/etc/nginx/nginx.conf:ro', './.secrets/oursteps.htpasswd:/etc/nginx/oursteps.htpasswd:ro', './data/public-analytics:/srv/analytics:rw'}, 'unexpected nginx mounts')
     require('docker.sock' not in compose and 'privileged:' not in compose, 'unsafe Docker configuration')
     for token in ('read_only: true', 'ALL', 'no-new-privileges:true', '18080:8080'):
         require(token in compose, 'missing container safeguard: '+token)
     nginx = (root/'nginx-public-stable.conf').read_text()
     recent_user, full_user = public_access()
     for token in ('root $archive_root;'
-                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json'):
+                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json', 'article-views\\.json', '/srv/analytics/article-views.log', 'article_reads'):
         require(token in nginx, 'missing nginx contract: '+token)
 
 
@@ -231,7 +234,8 @@ def validate_saved(root, target):
     report = json.loads(metadata(root,target).read_text())
     expected = {ARTICLE.fullmatch(n)[1] for n in report['hashes'] if ARTICLE.fullmatch(n)}
     require_control = OWNER_FILES <= set(report.get('hashes', {}))
-    actual = validate(root/'public-site'/target, expected, report.get('recent'), owner=True, require_control=require_control)
+    require_generated = PUBLIC_GENERATED <= set(report.get('hashes', {}))
+    actual = validate(root/'public-site'/target, expected, report.get('recent'), owner=True, require_control=require_control, require_generated=require_generated)
     require(actual['hashes'] == report['hashes'], 'release manifest checksum mismatch')
     digest = hashlib.sha256(json.dumps(actual['hashes'],sort_keys=True).encode()).hexdigest()
     require(Path(target).name == digest, 'release identity checksum mismatch')
@@ -275,6 +279,11 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                 source_hashes[item.name] = hashlib.sha256(item.read_bytes()).hexdigest()
         source_tids = {ARTICLE.fullmatch(n)[1] for n in source_hashes if ARTICLE.fullmatch(n)}
         require(source_tids == set(expected), 'preview does not match complete TIDs')
+        # Shared reader JS comes from current code so frontend-only changes do not require a 5k+ article rebuild.
+        reader_content = READER_JS.encode()
+        source_hashes['reader.js'] = hashlib.sha256(reader_content).hexdigest()
+        analytics_content = analytics_payload(root, expected)
+        source_hashes['article-views.json'] = hashlib.sha256(analytics_content).hexdigest()
         owner_content = control_center_files(root, len(expected), len(recent['allowed']))
         source_hashes.update({name:hashlib.sha256(data).hexdigest() for name,data in owner_content.items()})
         if (old_report and old_report.get('recent', {}).get('allowed') == recent['allowed']
@@ -295,16 +304,18 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                         shutil.copyfileobj(src,dst); dst.flush(); os.fsync(dst.fileno())
                     (stage/item.name).chmod(0o644)
             write_atomic(stage/'robots.txt', ROBOTS); (stage/'robots.txt').chmod(0o644)
+            write_atomic(stage/'reader.js', reader_content); (stage/'reader.js').chmod(0o644)
+            write_atomic(stage/'article-views.json', analytics_content); (stage/'article-views.json').chmod(0o644)
             for name,data in owner_content.items():
                 write_atomic(stage/name,data); (stage/name).chmod(0o644)
-            validate(stage,expected,owner=True,require_control=True)
+            validate(stage,expected,owner=True,require_control=True,require_generated=True)
             stage_recent(stage, set(recent['allowed']))
-            report = validate(stage,expected,recent,owner=True,require_control=True)
+            report = validate(stage,expected,recent,owner=True,require_control=True,require_generated=True)
             release_id = hashlib.sha256(json.dumps(report['hashes'],sort_keys=True).encode()).hexdigest()
             target = 'releases/'+release_id
             dest = site/target
             if dest.exists():
-                require(validate(dest,expected,recent,owner=True,require_control=True)['hashes'] == report['hashes'], 'existing release changed')
+                require(validate(dest,expected,recent,owner=True,require_control=True,require_generated=True)['hashes'] == report['hashes'], 'existing release changed')
             else:
                 sync_dir(stage); os.rename(str(stage),str(dest)); sync_dir(site/'releases')
             write_atomic(metadata(root,target),json.dumps(report,sort_keys=True).encode())

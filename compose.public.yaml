@@ -22,6 +22,7 @@ services:
       - ./public-site:/srv/public:ro
       - ./nginx-public-stable.conf:/etc/nginx/nginx.conf:ro
       - ./.secrets/oursteps.htpasswd:/etc/nginx/oursteps.htpasswd:ro
+      - ./data/public-analytics:/srv/analytics:rw
 
     read_only: true
 

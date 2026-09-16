@@ -11,6 +11,14 @@ http {
     default_type  application/octet-stream;
 
     access_log /dev/stdout;
+
+    # Privacy-minimal first-party article reads: no IP, username or User-Agent.
+    log_format article_reads '$msec\t$uri\t$status';
+    map "$request_method:$uri" $log_article_read {
+        default 0;
+        ~^GET:/[0-9]+\.html$ 1;
+    }
+    access_log /srv/analytics/article-views.log article_reads if=$log_article_read;
     error_log  /dev/stderr warn;
 
     sendfile on;
@@ -34,7 +42,7 @@ http {
     map $uri $archive_file {
         default /__scope_denied__;
         / /index.html;
-        ~^/(?:[0-9]+\.html|index\.html|search-index\.json|style\.css|search\.js|reader\.js|robots\.txt|control-center\.html|control-center\.css|control-center\.js|control-center\.json)$ $uri;
+        ~^/(?:[0-9]+\.html|index\.html|search-index\.json|style\.css|search\.js|reader\.js|robots\.txt|article-views\.json|control-center\.html|control-center\.css|control-center\.js|control-center\.json)$ $uri;
     }
 
     gzip on;
