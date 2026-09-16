@@ -96,6 +96,12 @@ class ScopeTests(PublicTests):
     def test_scopes_and_rolling_hash(self):
         first=self.publish();dest=self.root/'public-site'/first['release']
         self.assertTrue((dest/'recent-1y/1902000.html').exists())
+        full_index=(dest/'index.html').read_text()
+        recent_index_html=(dest/'recent-1y/index.html').read_text()
+        self.assertIn('class="range-btn owner-control-link"', full_index)
+        self.assertIn('href="/control-center.html"', full_index)
+        self.assertNotIn('owner-control-link', recent_index_html)
+        self.assertNotIn('/control-center.html', recent_index_html)
         for name in pub.OWNER_FILES:
             self.assertTrue((dest/name).is_file())
             self.assertFalse((dest/'recent-1y'/name).exists())

@@ -165,3 +165,7 @@ Two live-only integration bugs were fixed during validation:
 - the capability-dropped action API must not chmod a pre-existing shared queue lock it does not own; shared queue files use a deliberately narrow private queue protocol and are never public static assets
 
 Do not weaken these boundaries or reintroduce direct web execution.
+
+## Owner homepage Control Center entry
+
+The full/owner archive homepage includes a `Control Center` button linking to `/control-center.html`. This link is injected by the public publisher only into the full-scope `index.html`; the generated recent/tester `index.html` explicitly removes it. Release validation enforces that new owner releases contain exactly one link and recent scope contains none. Older releases remain readable for rollback compatibility.

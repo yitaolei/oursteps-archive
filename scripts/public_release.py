@@ -102,6 +102,22 @@ def recent_policy(dates, today=None):
     return dict(cutoff=cutoff, as_of=today, excluded_missing_dates=missing, allowed=sorted(allowed))
 
 
+def owner_index(data):
+    soup = BeautifulSoup(data, 'html.parser')
+    if soup.select_one('.owner-control-link') is None:
+        count = soup.select_one('#count')
+        anchor = soup.new_tag('a', href='/control-center.html')
+        anchor['class'] = ['range-btn', 'owner-control-link']
+        anchor.string = 'Control Center'
+        if count is not None:
+            count.insert_after(anchor)
+        else:
+            heading = soup.select_one('h1')
+            require(heading is not None, 'homepage heading missing')
+            heading.insert_after(anchor)
+    return str(soup).encode('utf-8')
+
+
 def stage_recent(stage, allowed):
     recent = stage/'recent-1y'; directory(recent)
     for name in (FIXED-{'index.html','search-index.json'}) | PUBLIC_GENERATED | {tid+'.html' for tid in allowed}:
@@ -109,6 +125,8 @@ def stage_recent(stage, allowed):
         # Link only within the immutable release, never to private preview/raw.
         os.link(stage/name, recent/name)
     soup = BeautifulSoup((stage/'index.html').read_bytes(), 'html.parser')
+    for link in soup.select('.owner-control-link'):
+        link.decompose()
     for card in soup.select('.card'):
         if card.get('data-tid') not in allowed:
             card.decompose()
@@ -126,7 +144,7 @@ def stage_recent(stage, allowed):
     sync_dir(recent)
 
 
-def validate(path, expected, recent=None, allow_empty=False, owner=False, require_control=False, require_generated=False):
+def validate(path, expected, recent=None, allow_empty=False, owner=False, require_control=False, require_generated=False, require_owner_link=False):
     require(path.is_dir() and not path.is_symlink(), 'release directory missing or symlink')
     require(stat.S_IMODE(path.stat().st_mode) == 0o755, 'release directory permissions must be 755')
     hashes = {}; tids = set()
@@ -147,6 +165,11 @@ def validate(path, expected, recent=None, allow_empty=False, owner=False, requir
     require(tids == set(expected) and (tids or allow_empty), 'article TIDs differ from expected complete threads')
     require((path/'robots.txt').read_bytes() == ROBOTS, 'robots must remain Disallow /')
     soup = BeautifulSoup((path/'index.html').read_bytes(), 'html.parser')
+    owner_links = soup.select('a.owner-control-link[href="/control-center.html"]')
+    if require_owner_link:
+        require(len(owner_links) == 1, 'owner homepage control-center link missing/duplicate')
+    elif not owner:
+        require(not owner_links, 'owner control-center link leaked outside full scope')
     cards = soup.select('.card')
     card_ids = [c.get('data-tid') for c in cards]
     require(len(card_ids) == len(tids) and set(card_ids) == tids, 'homepage card/data-tid mismatch')
@@ -167,6 +190,7 @@ def validate(path, expected, recent=None, allow_empty=False, owner=False, requir
         require(token in js, 'search/sort/range contract missing: '+token)
     require('await ensureSearchIndex()' in js, 'lazy search trigger missing')
     result = dict(articles=len(tids), cards=len(cards), search_entries=len(index), hashes=hashes)
+    if require_owner_link: result['owner_home_link'] = True
     if recent is not None:
         require(set(recent['allowed']) <= tids, 'recent TIDs outside full scope')
         scoped = validate(path/'recent-1y', recent['allowed'], allow_empty=True, owner=False, require_generated=require_generated)
@@ -241,7 +265,7 @@ def validate_saved(root, target):
     expected = {ARTICLE.fullmatch(n)[1] for n in report['hashes'] if ARTICLE.fullmatch(n)}
     require_control = OWNER_FILES <= set(report.get('hashes', {}))
     require_generated = PUBLIC_GENERATED <= set(report.get('hashes', {}))
-    actual = validate(root/'public-site'/target, expected, report.get('recent'), owner=True, require_control=require_control, require_generated=require_generated)
+    actual = validate(root/'public-site'/target, expected, report.get('recent'), owner=True, require_control=require_control, require_generated=require_generated, require_owner_link=bool(report.get('owner_home_link')))
     require(actual['hashes'] == report['hashes'], 'release manifest checksum mismatch')
     digest = hashlib.sha256(json.dumps(actual['hashes'],sort_keys=True).encode()).hexdigest()
     require(Path(target).name == digest, 'release identity checksum mismatch')
@@ -285,6 +309,8 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                 source_hashes[item.name] = hashlib.sha256(item.read_bytes()).hexdigest()
         source_tids = {ARTICLE.fullmatch(n)[1] for n in source_hashes if ARTICLE.fullmatch(n)}
         require(source_tids == set(expected), 'preview does not match complete TIDs')
+        owner_index_content = owner_index((source/'index.html').read_bytes())
+        source_hashes['index.html'] = hashlib.sha256(owner_index_content).hexdigest()
         # Shared reader JS comes from current code so frontend-only changes do not require a 5k+ article rebuild.
         reader_content = READER_JS.encode()
         source_hashes['reader.js'] = hashlib.sha256(reader_content).hexdigest()
@@ -309,19 +335,20 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                     with item.open('rb') as src, (stage/item.name).open('wb') as dst:
                         shutil.copyfileobj(src,dst); dst.flush(); os.fsync(dst.fileno())
                     (stage/item.name).chmod(0o644)
+            write_atomic(stage/'index.html', owner_index_content); (stage/'index.html').chmod(0o644)
             write_atomic(stage/'robots.txt', ROBOTS); (stage/'robots.txt').chmod(0o644)
             write_atomic(stage/'reader.js', reader_content); (stage/'reader.js').chmod(0o644)
             write_atomic(stage/'article-views.json', analytics_content); (stage/'article-views.json').chmod(0o644)
             for name,data in owner_content.items():
                 write_atomic(stage/name,data); (stage/name).chmod(0o644)
-            validate(stage,expected,owner=True,require_control=True,require_generated=True)
+            validate(stage,expected,owner=True,require_control=True,require_generated=True,require_owner_link=True)
             stage_recent(stage, set(recent['allowed']))
-            report = validate(stage,expected,recent,owner=True,require_control=True,require_generated=True)
+            report = validate(stage,expected,recent,owner=True,require_control=True,require_generated=True,require_owner_link=True)
             release_id = hashlib.sha256(json.dumps(report['hashes'],sort_keys=True).encode()).hexdigest()
             target = 'releases/'+release_id
             dest = site/target
             if dest.exists():
-                require(validate(dest,expected,recent,owner=True,require_control=True,require_generated=True)['hashes'] == report['hashes'], 'existing release changed')
+                require(validate(dest,expected,recent,owner=True,require_control=True,require_generated=True,require_owner_link=True)['hashes'] == report['hashes'], 'existing release changed')
             else:
                 sync_dir(stage); os.rename(str(stage),str(dest)); sync_dir(site/'releases')
             write_atomic(metadata(root,target),json.dumps(report,sort_keys=True).encode())

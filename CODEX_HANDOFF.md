@@ -104,3 +104,7 @@ Routine status, logs, launchd checks, Git inspection, existing tests, healthchec
 4. Preserve production boundaries listed above.
 5. Run focused tests first; avoid unrelated historical benchmarks.
 6. After important changes: update handoff docs, commit and push `main`.
+
+## Owner homepage Control Center button
+
+The full/owner homepage now receives a publisher-injected `Control Center` button linking to `/control-center.html`. The recent/tester homepage explicitly strips this link, so the UI follows the same physical scope separation as the Control Center assets themselves. Do not move this to shared preview HTML or client-side role detection.
