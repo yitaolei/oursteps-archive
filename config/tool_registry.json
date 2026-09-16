@@ -94,10 +94,10 @@
       "category": "backfill",
       "safety": "mutating_bounded",
       "entry_point": "scripts/history_launcher.py backfill --best-effort --now",
-      "schedule": "07:00-21:00 every two hours; max 5 threads / 45 minutes in current LaunchAgent",
+      "schedule": "07:00-21:00 every two hours; max 10 threads / 45 minutes in current LaunchAgent",
       "control_center": "phase_4_candidate",
       "confirmation": true,
-      "notes": "Successful backfill already performs preview -> publish -> public healthcheck. Do not duplicate publication.",
+      "notes": "Successful backfill already performs preview -> publish -> public healthcheck. Temporary acceleration from 2026-09-17 raises only max threads from 5 to 10; keep throttle/retry/backoff unchanged and review after about 24 hours before considering 15. Do not duplicate publication.",
       "web_action": true
     },
     {

@@ -13,12 +13,15 @@ Validated live state at close-out:
 - full public archive: **5,522 articles**
 - rolling recent-1y scope: **3,414 articles**
 - public release healthcheck: **PASS**
-- Guide Discovery V2 remains bounded/resumable; latest validated frontier is page **55**
+- Guide Discovery V2 remains bounded/resumable; latest validated frontier is page **78**
 - one historical item remains deliberately missing/review-required; do not force it complete
 - existing incremental sync, historical backfill and Guide Discovery schedules remain loaded
+- historical backfill is temporarily accelerated to **max 10 threads / 45 minutes per run** from 2026-09-17; cadence remains 07:00-21:00 every two hours and all throttle/retry/backoff protections remain unchanged
 - FoxCloud on HTTPS 8443 remains outside this project and was not changed
 
 These counts are a dated production snapshot, not constants. Normal scheduled sync/backfill can increase them.
+
+As of 2026-09-17, Guide inventory is 6,179 and the public archive is 5,567; the gap is expected to shrink through scheduled historical backfill while Guide discovery may continue adding candidates.
 
 ## Completed close-out phases
 
@@ -108,3 +111,6 @@ Routine status, logs, launchd checks, Git inspection, existing tests, healthchec
 ## Owner homepage Control Center button
 
 The full/owner homepage now receives a publisher-injected `Control Center` button linking to `/control-center.html`. The recent/tester homepage explicitly strips this link, so the UI follows the same physical scope separation as the Control Center assets themselves. Do not move this to shared preview HTML or client-side role detection.
+## Temporary throughput tuning — 2026-09-17
+
+The production historical-backfill LaunchAgent was deliberately changed from `--max-threads 5` to `--max-threads 10`. The 45-minute cap, two-hour schedule, crawler throttle, retry/backoff, locks and publication chain are unchanged. Treat this as a 24-hour observation trial. Do not raise it again or increase concurrency without reviewing real Busy/500/timeout rates and scheduler overlap first.
