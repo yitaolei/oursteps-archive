@@ -63,6 +63,20 @@ Historical backfill now performs publish + healthcheck automatically after a suc
 5. After an important code or documentation change: run focused tests/validation, update the handoff/status documentation, commit, and push `main` so Codex and future sessions see the same checkpoint.
 6. Never force ambiguous content complete merely to improve counts. Preserve `review_required` / partial states where evidence conflicts.
 
+## Phase 1-4 close-out status
+
+The four-stage close-out is **complete and production validated** as of 2026-09-16. Treat the phase headings below as the implemented architecture, not future work. See `CODEX_HANDOFF.md` for the concise code-assistant handoff.
+
+Final production validation included:
+
+- owner Control Center opened successfully on 8448 while the recent/tester scope remained isolated
+- privacy-minimal article analytics recorded and published real article reads
+- a real `publish_public` Control Center action traversed browser -> nginx -> internal API -> private queue -> Mac runner -> publish -> healthcheck and ended `succeeded`
+- public healthcheck passed after the action, with a dated snapshot of 5,522 full / 3,414 recent-1y articles
+- scheduled incremental sync continued operating during close-out; counts may therefore increase after this snapshot
+
+Latest live-validated code checkpoint before documentation close-out: `3d5828b`.
+
 ## Control Center roadmap
 
 The project close-out is intentionally staged:
@@ -85,7 +99,7 @@ Add first-party archive reading analytics separately from source-forum view coun
 
 
 Production validation note (2026-09-16): action requests must not gate on `$remote_user` in nginx rewrite phase. Basic Auth runs first; the internal queue-only API then independently enforces `X-Oursteps-Scope == full`. This preserves OSowner-only actions without the pre-auth 404 bug.
-Only after the read-only control center is validated, add narrowly scoped action buttons backed by explicit registry actions. Every write action must define authorization, confirmation, locking/idempotency behavior, timeout/error reporting, and a safe failure mode. No arbitrary shell command field is permitted.
+The validated implementation adds narrowly scoped action buttons backed by explicit registry actions. Every write action must define authorization, confirmation, locking/idempotency behavior, timeout/error reporting, and a safe failure mode. No arbitrary shell command field is permitted.
 
 ## Tool registry contract
 
@@ -140,3 +154,14 @@ The API requires a custom action header, rejects request bodies, de-duplicates a
 ## Phase 4 queue permission fix
 
 The action queue uses a private NAS directory with mode 777 and queue lock/job JSON files mode 666 so the capability-dropped internal action-api and the Mac-side runner can both update the same queue without Docker/SSH/secret privileges. The payloads contain only action/status/timestamps/messages and are never served as public static files.
+
+## Final Phase 4 production validation
+
+The safe-action path is production validated. A real owner-triggered `publish_public` job moved through pending -> running -> succeeded and completed the public healthcheck successfully.
+
+Two live-only integration bugs were fixed during validation:
+
+- nginx must not use a rewrite-phase `$remote_user` / `$archive_scope` `if` for action authorization; Basic Auth completes first and the internal API independently requires full owner scope
+- the capability-dropped action API must not chmod a pre-existing shared queue lock it does not own; shared queue files use a deliberately narrow private queue protocol and are never public static assets
+
+Do not weaken these boundaries or reintroduce direct web execution.

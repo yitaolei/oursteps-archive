@@ -176,6 +176,10 @@ The test suite uses synthetic identity and deployment data and should not depend
 
 Prefer focused tests while iterating and broader validation before a release. Some nginx integration tests require a native nginx executable and may be skipped where nginx is unavailable.
 
+## Current code-assistant handoff
+
+The current production-safe code handoff is [`CODEX_HANDOFF.md`](CODEX_HANDOFF.md). Code assistants should read it before changing crawler, publication, Control Center, analytics, scheduling or role-scope behavior. It records the completed Phase 1-4 close-out, live-validated safety fixes, stable checkpoints, and work that must not be repeated without a demonstrated regression.
+
 ## Operations and control-center roadmap
 
 Operator workflows, active scheduler relationships, safety boundaries, and the four-phase close-out roadmap are documented in [`OPERATIONS.md`](OPERATIONS.md). A public-safe machine-readable capability inventory lives in [`config/tool_registry.json`](config/tool_registry.json); it contains no credentials and does not itself grant execution authority. The owner-only 8448 Control Center now also supports fixed allowlisted safe actions through an internal queue and a Mac-side runner; rollback and authentication remain outside the web UI.
