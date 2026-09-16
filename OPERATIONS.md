@@ -83,6 +83,8 @@ Add first-party archive reading analytics separately from source-forum view coun
 
 ### Phase 4 — Safe Action Buttons
 
+
+Production validation note (2026-09-16): action requests must not gate on `$remote_user` in nginx rewrite phase. Basic Auth runs first; the internal queue-only API then independently enforces `X-Oursteps-Scope == full`. This preserves OSowner-only actions without the pre-auth 404 bug.
 Only after the read-only control center is validated, add narrowly scoped action buttons backed by explicit registry actions. Every write action must define authorization, confirmation, locking/idempotency behavior, timeout/error reporting, and a safe failure mode. No arbitrary shell command field is permitted.
 
 ## Tool registry contract

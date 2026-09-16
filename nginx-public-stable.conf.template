@@ -86,7 +86,8 @@ http {
         }
 
         location ^~ /control-action/ {
-            if ($archive_scope != full) { return 404; }
+            # Authorization is enforced by Basic Auth first, then by the internal API
+            # using X-Oursteps-Scope. Do not use a rewrite-phase $remote_user check here.
             client_max_body_size 1k;
             limit_except GET POST { deny all; }
             proxy_pass http://action-api:8081;

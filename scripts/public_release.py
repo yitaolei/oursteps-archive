@@ -198,7 +198,7 @@ def config_check(root):
     nginx = (root/'nginx-public-stable.conf').read_text()
     recent_user, full_user = public_access()
     for token in ('root $archive_root;'
-                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json', 'article-views\\.json', '/srv/analytics/article-views.log', 'article_reads', 'proxy_pass http://action-api:8081;', 'if ($archive_scope != full)', 'X-Oursteps-Action-Request'):
+                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json', 'article-views\\.json', '/srv/analytics/article-views.log', 'article_reads', 'proxy_pass http://action-api:8081;', 'X-Oursteps-Action-Request'):
         require(token in nginx, 'missing nginx contract: '+token)
 
 

@@ -36,6 +36,8 @@ class PublicAccessTests(unittest.TestCase):
         self.assertIn('~^recent_reader$ recent-1y;', expected)
         self.assertIn('~^archive_owner$ full;', expected)
         self.assertNotIn('~*', expected)
+        self.assertNotIn('if ($archive_scope != full)', expected)
+        self.assertIn('proxy_set_header X-Oursteps-Scope $archive_scope;', expected)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             shutil.copy2(ROOT / 'compose.public.yaml', root / 'compose.public.yaml')
