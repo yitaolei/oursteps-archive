@@ -136,3 +136,7 @@ Execution path:
 6. only sanitized pending/running/succeeded/failed state is exposed back to the Control Center
 
 The API requires a custom action header, rejects request bodies, de-duplicates an already pending/running action, and exposes no command output or private paths. The runner does not execute command text from the registry.
+
+## Phase 4 queue permission fix
+
+The action queue uses a private NAS directory with mode 777 and queue lock/job JSON files mode 666 so the capability-dropped internal action-api and the Mac-side runner can both update the same queue without Docker/SSH/secret privileges. The payloads contain only action/status/timestamps/messages and are never served as public static files.

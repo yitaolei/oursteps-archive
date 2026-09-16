@@ -27,6 +27,7 @@ def _atomic(path, data):
     fd, tmp = tempfile.mkstemp(prefix='.' + path.name, dir=str(path.parent))
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            os.fchmod(handle.fileno(), 0o666)
             json.dump(data, handle, sort_keys=True, separators=(',', ':'))
             handle.write('\n')
             handle.flush(); os.fsync(handle.fileno())
@@ -60,6 +61,7 @@ def request(root, action):
     q=queue_dir(root)
     lock=q/'queue.lock'
     with lock.open('a') as handle:
+        os.fchmod(handle.fileno(), 0o666)
         fcntl.flock(handle, fcntl.LOCK_EX)
         for job in _jobs(root):
             if job.get('action') == action and job.get('state') in ACTIVE:
@@ -73,6 +75,7 @@ def request(root, action):
 def claim(root):
     q=queue_dir(root)
     with (q/'queue.lock').open('a') as handle:
+        os.fchmod(handle.fileno(), 0o666)
         fcntl.flock(handle, fcntl.LOCK_EX)
         for job in _jobs(root):
             if job.get('action') in WEB_ACTIONS and job.get('state') == 'pending':
