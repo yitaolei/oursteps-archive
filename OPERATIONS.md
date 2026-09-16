@@ -110,3 +110,27 @@ See `STATUS.md`, `PROJECT_HANDOFF.md`, `PUBLIC_PUBLISH.md`, and `AUTO_BATCH_OPER
 ## Phase 3 — Article Analytics implementation
 
 First-party article reads are counted from a dedicated nginx access log mounted at `data/public-analytics/`. The log format is intentionally minimal: timestamp, article URI/TID, and HTTP status only. No IP address, Basic Auth username, User-Agent, Cookie, or session data is recorded. Only successful `GET /<tid>.html` rows count. The generated `article-views.json` is public-safe and contains TID-to-count mappings only; article pages render this as `本站阅读`, distinct from the source-forum `浏览` metric.
+
+## Phase 4 — Safe Action Buttons
+
+The 8448 owner Control Center now supports a deliberately narrow action queue. The browser never receives shell, SSH, Keychain, Docker, database or filesystem execution capability.
+
+Allowed web actions are exactly:
+
+- `incremental_sync`
+- `guide_discovery_v2`
+- `historical_backfill`
+- `publish_public`
+
+`rollback_public` remains Terminal-only because it is high impact. `authenticate` remains local-only because it is secret-bearing.
+
+Execution path:
+
+1. owner-authenticated 8448 Control Center submits a fixed action ID
+2. nginx permits `/control-action/` only for the full/owner scope
+3. internal `action-api` has no published host port and can only write the private `data/control-actions` queue
+4. `local.oursteps.control-actions` on the Mac mini checks the queue every 60 seconds
+5. the Mac runner uses its own hard-coded allowlist and existing supported launchers
+6. only sanitized pending/running/succeeded/failed state is exposed back to the Control Center
+
+The API requires a custom action header, rejects request bodies, de-duplicates an already pending/running action, and exposes no command output or private paths. The runner does not execute command text from the registry.

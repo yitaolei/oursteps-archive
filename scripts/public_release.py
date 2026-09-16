@@ -189,10 +189,16 @@ def config_check(root):
     require('docker.sock' not in compose and 'privileged:' not in compose, 'unsafe Docker configuration')
     for token in ('read_only: true', 'ALL', 'no-new-privileges:true', '18080:8080'):
         require(token in compose, 'missing container safeguard: '+token)
+    require('\n  action-api:' in compose, 'missing internal action-api')
+    action = compose.split('\n  action-api:',1)[1]
+    require('ports:' not in action, 'action-api must not publish a host port')
+    require('.secrets' not in action and 'archive.sqlite3' not in action and 'docker.sock' not in action, 'action-api secret/private mount refused')
+    for token in ('control_action_api.py:/app/scripts/control_action_api.py:ro', 'control_actions.py:/app/oursteps/control_actions.py:ro', 'tool_registry.json:/app/config/tool_registry.json:ro', 'data/control-actions:/state/data/control-actions:rw', 'read_only: true', 'no-new-privileges:true'):
+        require(token in action, 'missing action-api safeguard: '+token)
     nginx = (root/'nginx-public-stable.conf').read_text()
     recent_user, full_user = public_access()
     for token in ('root $archive_root;'
-                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json', 'article-views\\.json', '/srv/analytics/article-views.log', 'article_reads'):
+                  , 'default /dev/null;', f'~^{recent_user}$ recent-1y;', f'~^{full_user}$ full;', 'auth_basic_user_file /etc/nginx/oursteps.htpasswd;', 'server_tokens off;', 'connect-src \'self\'', 'limit_except GET HEAD', 'gzip on;', 'open_file_cache off;', 'control-center\\.json', 'article-views\\.json', '/srv/analytics/article-views.log', 'article_reads', 'proxy_pass http://action-api:8081;', 'if ($archive_scope != full)', 'X-Oursteps-Action-Request'):
         require(token in nginx, 'missing nginx contract: '+token)
 
 

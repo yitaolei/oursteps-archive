@@ -100,7 +100,7 @@ class ScopeTests(PublicTests):
             self.assertTrue((dest/name).is_file())
             self.assertFalse((dest/'recent-1y'/name).exists())
         control=json.loads((dest/'control-center.json').read_text())
-        self.assertEqual(control['mode'],'read_only_static_snapshot')
+        self.assertEqual(control['mode'],'safe_action_control_center')
         self.assertEqual(control['archive']['full_public'],1)
         self.assertEqual(control['archive']['recent_1y'],1)
         for name in pub.FIXED-{'index.html','search-index.json'} | {'1902000.html'}:

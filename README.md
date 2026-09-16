@@ -178,7 +178,7 @@ Prefer focused tests while iterating and broader validation before a release. So
 
 ## Operations and control-center roadmap
 
-Operator workflows, active scheduler relationships, safety boundaries, and the four-phase close-out roadmap are documented in [`OPERATIONS.md`](OPERATIONS.md). A public-safe machine-readable capability inventory lives in [`config/tool_registry.json`](config/tool_registry.json); it contains no credentials and does not itself grant execution authority.
+Operator workflows, active scheduler relationships, safety boundaries, and the four-phase close-out roadmap are documented in [`OPERATIONS.md`](OPERATIONS.md). A public-safe machine-readable capability inventory lives in [`config/tool_registry.json`](config/tool_registry.json); it contains no credentials and does not itself grant execution authority. The owner-only 8448 Control Center now also supports fixed allowlisted safe actions through an internal queue and a Mac-side runner; rollback and authentication remain outside the web UI.
 
 The Phase 2 Control Center is implemented as owner-only static release assets (`/control-center.html` plus a sanitized JSON snapshot), preserving the existing read-only nginx architecture and recent/full role separation.
 

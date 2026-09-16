@@ -85,6 +85,24 @@ http {
             return 404;
         }
 
+        location ^~ /control-action/ {
+            if ($archive_scope != full) { return 404; }
+            client_max_body_size 1k;
+            limit_except GET POST { deny all; }
+            proxy_pass http://action-api:8081;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header X-Oursteps-Scope $archive_scope;
+            proxy_set_header X-Oursteps-Action-Request $http_x_oursteps_action_request;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            add_header Cache-Control "no-store" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        }
+
         location / {
             limit_except GET HEAD {
                 deny all;

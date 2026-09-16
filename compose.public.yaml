@@ -36,3 +36,27 @@ services:
       - no-new-privileges:true
 
     restart: unless-stopped
+
+  action-api:
+    build: .
+    container_name: oursteps-action-api
+    entrypoint:
+      - python
+    command:
+      - /app/scripts/control_action_api.py
+    environment:
+      OURSTEPS_ACTION_ROOT: /state
+      OURSTEPS_APP: /app
+    volumes:
+      - ./scripts/control_action_api.py:/app/scripts/control_action_api.py:ro
+      - ./oursteps/control_actions.py:/app/oursteps/control_actions.py:ro
+      - ./config/tool_registry.json:/app/config/tool_registry.json:ro
+      - ./data/control-actions:/state/data/control-actions:rw
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

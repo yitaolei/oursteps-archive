@@ -28,7 +28,8 @@
       "entry_point": "scripts/mac-tools/oursteps-status",
       "control_center": "phase_2_candidate",
       "confirmation": false,
-      "notes": "Read-only production dashboard over SSH/NAS-native operations."
+      "notes": "Read-only production dashboard over SSH/NAS-native operations.",
+      "web_action": false
     },
     {
       "id": "historical_live_status",
@@ -38,7 +39,8 @@
       "entry_point": "scripts/backfill_live_status.py",
       "control_center": "phase_2_candidate",
       "confirmation": false,
-      "notes": "Read-only historical worker/progress status."
+      "notes": "Read-only historical worker/progress status.",
+      "web_action": false
     },
     {
       "id": "public_healthcheck",
@@ -48,7 +50,8 @@
       "entry_point": "scripts/public_healthcheck.py",
       "control_center": "phase_2_candidate",
       "confirmation": false,
-      "notes": "Validates the current static public release and safety contracts."
+      "notes": "Validates the current static public release and safety contracts.",
+      "web_action": false
     },
     {
       "id": "show_missing",
@@ -58,7 +61,8 @@
       "entry_point": "scripts/mac-tools/show-missing",
       "control_center": "phase_2_candidate",
       "confirmation": false,
-      "notes": "Inspection only; ambiguous review_required items must not be forced complete."
+      "notes": "Inspection only; ambiguous review_required items must not be forced complete.",
+      "web_action": false
     },
     {
       "id": "guide_discovery_v2",
@@ -69,7 +73,8 @@
       "schedule": "03:15 daily; max 25 pages / 20 minutes in current LaunchAgent",
       "control_center": "phase_4_candidate",
       "confirmation": true,
-      "notes": "Resumable historical candidate discovery. Preserve throttle/backoff and existing scheduler."
+      "notes": "Resumable historical candidate discovery. Preserve throttle/backoff and existing scheduler.",
+      "web_action": true
     },
     {
       "id": "incremental_sync",
@@ -80,7 +85,8 @@
       "schedule": "06:00-22:00 every two hours in current LaunchAgent",
       "control_center": "phase_4_candidate",
       "confirmation": true,
-      "notes": "Normal authenticated incremental archive/update publication workflow."
+      "notes": "Normal authenticated incremental archive/update publication workflow.",
+      "web_action": true
     },
     {
       "id": "historical_backfill",
@@ -91,7 +97,8 @@
       "schedule": "07:00-21:00 every two hours; max 5 threads / 45 minutes in current LaunchAgent",
       "control_center": "phase_4_candidate",
       "confirmation": true,
-      "notes": "Successful backfill already performs preview -> publish -> public healthcheck. Do not duplicate publication."
+      "notes": "Successful backfill already performs preview -> publish -> public healthcheck. Do not duplicate publication.",
+      "web_action": true
     },
     {
       "id": "publish_public",
@@ -101,7 +108,8 @@
       "entry_point": "scripts/publish_public.py",
       "control_center": "phase_4_candidate",
       "confirmation": true,
-      "notes": "Atomic validated static publication using existing locks and release checks."
+      "notes": "Atomic validated static publication using existing locks and release checks.",
+      "web_action": true
     },
     {
       "id": "rollback_public",
@@ -109,9 +117,10 @@
       "category": "publication",
       "safety": "mutating_high_impact",
       "entry_point": "scripts/publish_public.py --rollback",
-      "control_center": "phase_4_candidate",
+      "control_center": "terminal_only",
       "confirmation": true,
-      "notes": "High-impact recovery action. Require explicit authorization and clear current/previous release display before execution."
+      "notes": "High-impact recovery action. Require explicit authorization and clear current/previous release display before execution.",
+      "web_action": false
     },
     {
       "id": "authenticate",
@@ -121,7 +130,8 @@
       "entry_point": "Authenticate OurSteps.command",
       "control_center": "never",
       "confirmation": true,
-      "notes": "Keep local to the Mac authentication workflow. Never expose Keychain/session material through 8448."
+      "notes": "Keep local to the Mac authentication workflow. Never expose Keychain/session material through 8448.",
+      "web_action": false
     }
   ]
 }
