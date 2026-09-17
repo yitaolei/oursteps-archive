@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""Install Mac LaunchAgent that safely drains one Control Center action per minute."""
+"""Install Mac LaunchAgents for safe Control Center actions and worker status."""
 import os,plistlib,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 if sys.platform!='darwin': raise SystemExit('Run on the Mac mini')
-label='local.oursteps.control-actions';target=Path.home()/'Library/LaunchAgents'/(label+'.plist');logs=Path.home()/'Library/Logs';logs.mkdir(exist_ok=True)
-config=dict(Label=label,ProgramArguments=[sys.executable,str(ROOT/'scripts/control_action_runner.py')],StartInterval=60,WorkingDirectory=str(ROOT),StandardOutPath=str(logs/'oursteps-control-actions.log'),StandardErrorPath=str(logs/'oursteps-control-actions-error.log'),ProcessType='Background',RunAtLoad=False)
-target.write_bytes(plistlib.dumps(config));target.chmod(0o600);domain='gui/%s'%os.getuid();subprocess.run(['launchctl','bootout',domain+'/'+label],capture_output=True);subprocess.run(['launchctl','bootstrap',domain,str(target)],check=True);print('Installed '+label+' every 60 seconds')
+logs=Path.home()/'Library/Logs';logs.mkdir(exist_ok=True);domain='gui/%s'%os.getuid()
+
+def install(label,args,interval,out,err,run_at_load=False):
+    target=Path.home()/'Library/LaunchAgents'/(label+'.plist')
+    config=dict(Label=label,ProgramArguments=args,StartInterval=interval,WorkingDirectory=str(ROOT),StandardOutPath=str(logs/out),StandardErrorPath=str(logs/err),ProcessType='Background',RunAtLoad=run_at_load)
+    target.write_bytes(plistlib.dumps(config));target.chmod(0o600)
+    subprocess.run(['launchctl','bootout',domain+'/'+label],capture_output=True)
+    subprocess.run(['launchctl','bootstrap',domain,str(target)],check=True)
+
+install('local.oursteps.control-actions',[sys.executable,str(ROOT/'scripts/control_action_runner.py')],60,'oursteps-control-actions.log','oursteps-control-actions-error.log')
+install('local.oursteps.worker-status',[sys.executable,str(ROOT/'scripts/worker_status_snapshot.py')],30,'oursteps-worker-status.log','oursteps-worker-status-error.log',run_at_load=True)
+print('Installed Control Center action runner (60s) and worker status snapshot (30s)')

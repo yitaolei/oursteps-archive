@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 ROOT=Path(os.environ.get('OURSTEPS_ACTION_ROOT','/state'))
 sys.path.insert(0, os.environ.get('OURSTEPS_APP','/app'))
-from oursteps.control_actions import WEB_ACTIONS, request, status
+from oursteps.control_actions import WEB_ACTIONS, request, status, worker_status
 
 def enabled_actions():
     try:
@@ -23,8 +23,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
     def _owner(self): return self.headers.get('X-Oursteps-Scope') == 'full'
     def do_GET(self):
-        if not self._owner() or self.path != '/control-action/status': return self._send(404,{'ok':False})
-        self._send(200,{'ok':True,'jobs':status(ROOT)})
+        if not self._owner(): return self._send(404,{'ok':False})
+        if self.path == '/control-action/status': return self._send(200,{'ok':True,'jobs':status(ROOT)})
+        if self.path == '/control-action/worker-status': return self._send(200,{'ok':True,'worker':worker_status(ROOT)})
+        return self._send(404,{'ok':False})
     def do_POST(self):
         if not self._owner(): return self._send(404,{'ok':False})
         if self.headers.get('X-Oursteps-Action-Request') != '1': return self._send(403,{'ok':False,'error':'action header required'})

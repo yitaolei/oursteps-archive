@@ -18,6 +18,7 @@ This is the operator-facing map for the production OurSteps Archive system. It r
 | Guide Discovery V2 | `local.oursteps.guide-discovery` | 03:15 daily | `scripts/history_launcher.py guide-discover --max-pages 25 --max-minutes 20` | Discovers candidate historical TIDs only; resumable and bounded. |
 | Incremental sync | `local.oursteps.incremental-sync` | 06:00, then every 2 hours through 22:00 | `scripts/update_now.py --now` | Authenticates, syncs current content, updates preview/publication using existing production workflow. |
 | Historical backfill | `local.oursteps.historical-backfill` | 07:00, then every 2 hours through 21:00 | `scripts/history_launcher.py backfill --best-effort --now --max-threads 10 --max-minutes 45` | Bounded historical backfill. Successful completion proceeds through preview, public publish, then public healthcheck. |
+| Worker status snapshot | `local.oursteps.worker-status` | Every 30 seconds | `scripts/worker_status_snapshot.py` | Read-only NAS worker-lock probe. Writes only sanitized owner-Control-Center status; no PID, command, path, host or secret fields are published. |
 
 The schedules above describe the currently loaded Mac mini LaunchAgents. Do not silently replace them from an older installer template.
 
@@ -31,6 +32,12 @@ Historical backfill was raised from **5 to 10 threads per scheduled run** while 
 Manual archive/authentication launchers now run `scripts/archive_worker_status.py --guard` before starting. If the NAS `data/worker.lock` is held by an active archive writer, the manual command stops before authentication/network work begins and asks the operator to retry later. This prevents a manual update/auth/discovery/backfill from colliding with a scheduled Historical Backfill or Incremental Sync.
 
 For an immediate read-only check, double-click `OurSteps Worker Status.command`. It reports `RUNNING`, `IDLE`, or `UNKNOWN`. The existing `Historical Backfill Live Status.command` remains the deeper progress monitor.
+
+### Live Archive Worker status
+
+The owner-only 8448 Control Center reads `/control-action/worker-status` every 5 seconds. A dedicated Mac LaunchAgent (`local.oursteps.worker-status`) refreshes the sanitized source snapshot every 30 seconds, independently of the long-running Control Center action runner. The page shows only `RUNNING` / `IDLE` / `UNKNOWN`, a bounded task label, elapsed/start time, next Historical Backfill time and snapshot timestamp. Status older than 90 seconds is forced to `UNKNOWN`. OStester/recent scope receives neither the Control Center assets nor this API result.
+
+Manual `.command` archive/auth entry points also run `scripts/archive_worker_status.py --guard` before starting. If the NAS worker lock is busy or status cannot be safely confirmed, the manual write action is not started.
 
 ## Supported manual entry points
 

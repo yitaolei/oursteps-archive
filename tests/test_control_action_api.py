@@ -19,6 +19,8 @@ class ControlActionApiTests(unittest.TestCase):
         self.assertEqual(self.req('GET','/control-action/status')[0],404)
         owner={'X-Oursteps-Scope':'full'}
         self.assertEqual(self.req('GET','/control-action/status',owner)[0],200)
+        self.assertEqual(self.req('GET','/control-action/worker-status')[0],404)
+        status,worker=self.req('GET','/control-action/worker-status',owner);self.assertEqual(status,200);self.assertEqual(worker['worker']['state'],'UNKNOWN')
         self.assertEqual(self.req('POST','/control-action/request/incremental_sync',owner)[0],403)
         h={**owner,'X-Oursteps-Action-Request':'1'}
         self.assertEqual(self.req('POST','/control-action/request/rollback_public',h)[0],404)

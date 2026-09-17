@@ -97,3 +97,37 @@ def finish(root, ident, success, message):
     data.update(state='succeeded' if success else 'failed', updated_at=int(time.time()), message=text or ('Completed' if success else 'Failed'))
     _atomic(path,data)
     return data
+
+
+def worker_status(root, now=None):
+    now=int(time.time() if now is None else now)
+    path=queue_dir(root)/'worker-status.json'
+    fallback={'state':'UNKNOWN','task':'unknown','started_at':None,'elapsed_seconds':None,'next_historical_backfill':None,'sampled_at':None}
+    try:
+        data=json.loads(path.read_text())
+    except (OSError,ValueError):
+        return fallback
+    allowed_states={'RUNNING','IDLE','UNKNOWN'}
+    allowed_tasks={'historical_backfill','incremental_sync','guide_discovery','archive_worker','manual','idle','unknown'}
+    state=data.get('state');task=data.get('task');sampled=data.get('sampled_at')
+    if state not in allowed_states or task not in allowed_tasks or not isinstance(sampled,int): return fallback
+    if now-sampled>90: state='UNKNOWN';task='unknown'
+    def ivalue(key):
+        value=data.get(key);return value if isinstance(value,int) and value>=0 else None
+    return {'state':state,'task':task,'started_at':ivalue('started_at'),'elapsed_seconds':ivalue('elapsed_seconds'),'next_historical_backfill':ivalue('next_historical_backfill'),'sampled_at':sampled}
+
+
+def write_worker_status(root, data):
+    allowed_states={'RUNNING','IDLE','UNKNOWN'}
+    allowed_tasks={'historical_backfill','incremental_sync','guide_discovery','archive_worker','manual','idle','unknown'}
+    if not isinstance(data,dict) or data.get('state') not in allowed_states or data.get('task') not in allowed_tasks:
+        raise ValueError('invalid worker status')
+    clean={'state':data['state'],'task':data['task']}
+    for key in ('started_at','elapsed_seconds','next_historical_backfill','sampled_at'):
+        value=data.get(key)
+        clean[key]=value if isinstance(value,int) and value>=0 else None
+    if clean['sampled_at'] is None: raise ValueError('worker status timestamp required')
+    q=queue_dir(root);path=q/'worker-status.json'
+    _atomic(path,clean)
+    path.chmod(0o644)
+    return clean

@@ -27,3 +27,5 @@ class ControlCenterTests(unittest.TestCase):
             rendered=files(root,1,1)
             self.assertEqual(set(rendered),OWNER_FILES)
             self.assertNotIn(b'<script>',rendered['control-center.html'])
+            self.assertIn(b'Archive Worker',rendered['control-center.html'])
+            self.assertIn(b'/control-action/worker-status',rendered['control-center.js'])

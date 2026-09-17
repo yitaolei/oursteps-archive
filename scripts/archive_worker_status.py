@@ -6,6 +6,9 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -24,6 +27,7 @@ if lock.exists():
         busy=True
 kind='idle'
 pid=None
+started_at=None
 if busy:
     kind='archive_worker'
     for proc in Path('/proc').glob('[0-9]*'):
@@ -33,13 +37,28 @@ if busy:
             cwd=(proc/'cwd').resolve()
             if cwd != root: continue
             joined=' '.join(args)
-            if any(Path(a).name=='history_worker.py' for a in args) and 'backfill' in args:
-                kind='historical_backfill';pid=int(proc.name);break
+            if any(Path(a).name=='history_worker.py' for a in args) and ('backfill' in args or 'guide-discover' in args):
+                kind='historical_backfill' if 'backfill' in args else 'guide_discovery';pid=int(proc.name)
+                try:
+                    ticks=os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+                    start_ticks=int((proc/'stat').read_text().split()[21])
+                    uptime=float(Path('/proc/uptime').read_text().split()[0])
+                    started_at=int(__import__('time').time()-uptime+(start_ticks/ticks))
+                except Exception:
+                    started_at=None
+                break
             if 'archive.py sync-today' in joined:
                 kind='incremental_sync';pid=int(proc.name)
+                try:
+                    ticks=os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+                    start_ticks=int((proc/'stat').read_text().split()[21])
+                    uptime=float(Path('/proc/uptime').read_text().split()[0])
+                    started_at=int(__import__('time').time()-uptime+(start_ticks/ticks))
+                except Exception:
+                    started_at=None
         except (OSError,UnicodeError,ValueError):
             continue
-print(json.dumps({'busy':busy,'kind':kind,'pid':pid},separators=(',',':')))
+print(json.dumps({'busy':busy,'kind':kind,'pid':pid,'started_at':started_at},separators=(',',':')))
 '''
 
 def probe():
@@ -55,6 +74,33 @@ def probe():
     if not isinstance(data,dict) or not isinstance(data.get('busy'),bool):
         raise RuntimeError('invalid worker status response')
     return data
+
+
+def next_backfill(now=None):
+    tz=ZoneInfo('Australia/Sydney')
+    now=now or datetime.now(tz)
+    for hour in (7,9,11,13,15,17,19,21):
+        candidate=now.replace(hour=hour,minute=0,second=0,microsecond=0)
+        if candidate>now:
+            return int(candidate.timestamp())
+    tomorrow=(now+timedelta(days=1)).replace(hour=7,minute=0,second=0,microsecond=0)
+    return int(tomorrow.timestamp())
+
+def public_status():
+    sampled=int(time.time())
+    try:
+        data=probe()
+    except Exception:
+        return {'state':'UNKNOWN','task':'unknown','started_at':None,'elapsed_seconds':None,'next_historical_backfill':next_backfill(),'sampled_at':sampled}
+    started=data.get('started_at') if data.get('busy') else None
+    return {
+        'state':'RUNNING' if data.get('busy') else 'IDLE',
+        'task':str(data.get('kind') or 'unknown') if data.get('busy') else 'idle',
+        'started_at':int(started) if isinstance(started,(int,float)) else None,
+        'elapsed_seconds':max(0,sampled-int(started)) if isinstance(started,(int,float)) else None,
+        'next_historical_backfill':next_backfill(),
+        'sampled_at':sampled,
+    }
 
 def main():
     p=argparse.ArgumentParser()

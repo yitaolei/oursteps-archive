@@ -117,3 +117,7 @@ The production historical-backfill LaunchAgent was deliberately changed from `--
 ## Manual worker collision protection — 2026-09-18
 
 Manual `Update`, `Authenticate`, Historical Backfill, and discovery `.command` launchers now call `scripts/archive_worker_status.py --guard` before doing work. The guard probes the NAS-native `data/worker.lock`; when a scheduled archive writer is active, manual work stops before authentication/network access. `OurSteps Worker Status.command` is the one-shot read-only status entry point. Preserve this guard when changing manual launchers.
+
+## Live worker status + manual guard — 2026-09-18
+
+Owner Control Center now has a near-real-time Archive Worker panel. `local.oursteps.worker-status` runs every 30 seconds and writes only a sanitized status snapshot; `/control-action/worker-status` is owner/full-scope only, and stale snapshots (>90s) become `UNKNOWN`. The web payload must never expose PID, command lines, paths, hostnames, credentials or session details. Manual archive/auth `.command` entry points also guard against an active NAS worker before starting. Keep this independent from the long-running action runner so RUNNING status continues to refresh during 20–45 minute jobs. The Control Center Historical Backfill action is aligned with the production scheduler at `--max-threads 10 --max-minutes 45`.
