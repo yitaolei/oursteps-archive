@@ -111,6 +111,11 @@ The preview server is intended for local access and serves generated files rathe
 
 ## Historical archive tools
 
+### Worker status / manual collision protection
+
+Before manual archive/authentication launchers start, they first check the NAS archive worker lock. If another archive writer is active, the manual action exits before authentication or sync work begins. Use `OurSteps Worker Status.command` for a quick one-shot `RUNNING` / `IDLE` check, or `Historical Backfill Live Status.command` for the read-only progress monitor.
+
+
 The repository includes resumable tools for historical discovery, status checking, reconciliation, and controlled backfill.
 
 macOS convenience launchers include:

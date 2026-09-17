@@ -25,6 +25,13 @@ The schedules above describe the currently loaded Mac mini LaunchAgents. Do not 
 
 Historical backfill was raised from **5 to 10 threads per scheduled run** while keeping the existing 45-minute cap, two-hour cadence, request throttling, Busy/HTTP retry handling, authentication checks and worker/publish locks unchanged. This is a conservative throughput increase only; it is not authorization to increase request concurrency or weaken backoff. Observe roughly 24 hours of production runs before considering any further increase (for example 10 -> 15).
 
+
+## Manual command collision guard
+
+Manual archive/authentication launchers now run `scripts/archive_worker_status.py --guard` before starting. If the NAS `data/worker.lock` is held by an active archive writer, the manual command stops before authentication/network work begins and asks the operator to retry later. This prevents a manual update/auth/discovery/backfill from colliding with a scheduled Historical Backfill or Incremental Sync.
+
+For an immediate read-only check, double-click `OurSteps Worker Status.command`. It reports `RUNNING`, `IDLE`, or `UNKNOWN`. The existing `Historical Backfill Live Status.command` remains the deeper progress monitor.
+
 ## Supported manual entry points
 
 ### Read-only / inspection

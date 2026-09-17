@@ -114,3 +114,6 @@ The full/owner homepage now receives a publisher-injected `Control Center` butto
 ## Temporary throughput tuning — 2026-09-17
 
 The production historical-backfill LaunchAgent was deliberately changed from `--max-threads 5` to `--max-threads 10`. The 45-minute cap, two-hour schedule, crawler throttle, retry/backoff, locks and publication chain are unchanged. Treat this as a 24-hour observation trial. Do not raise it again or increase concurrency without reviewing real Busy/500/timeout rates and scheduler overlap first.
+## Manual worker collision protection — 2026-09-18
+
+Manual `Update`, `Authenticate`, Historical Backfill, and discovery `.command` launchers now call `scripts/archive_worker_status.py --guard` before doing work. The guard probes the NAS-native `data/worker.lock`; when a scheduled archive writer is active, manual work stops before authentication/network access. `OurSteps Worker Status.command` is the one-shot read-only status entry point. Preserve this guard when changing manual launchers.
