@@ -32,7 +32,7 @@ if busy:
     kind='archive_worker'
     for proc in Path('/proc').glob('[0-9]*'):
         try:
-            args=[a.decode(errors='replace') for a in (proc/'cmdline').read_bytes().split(b'\\0') if a]
+            args=[a.decode(errors='replace') for a in (proc/'cmdline').read_bytes().split(b'\0') if a]
             if not args: continue
             cwd=(proc/'cwd').resolve()
             if cwd != root: continue
