@@ -17,14 +17,14 @@ This is the operator-facing map for the production OurSteps Archive system. It r
 | --- | --- | --- | --- | --- |
 | Guide Discovery V2 | `local.oursteps.guide-discovery` | 03:15 daily | `scripts/history_launcher.py guide-discover --max-pages 25 --max-minutes 20` | Discovers candidate historical TIDs only; resumable and bounded. |
 | Incremental sync | `local.oursteps.incremental-sync` | 06:00, then every 2 hours through 22:00 | `scripts/update_now.py --now` | Authenticates, syncs current content, updates preview/publication using existing production workflow. |
-| Historical backfill | `local.oursteps.historical-backfill` | 07:00, then every 2 hours through 21:00 | `scripts/history_launcher.py backfill --best-effort --now --max-threads 10 --max-minutes 45` | Bounded historical backfill. Successful completion proceeds through preview, public publish, then public healthcheck. |
+| Historical backfill | `local.oursteps.historical-backfill` | 07:00, then every 2 hours through 21:00 | `scripts/history_launcher.py backfill --best-effort --now --max-threads 15 --max-minutes 45` | Bounded historical backfill. Successful completion proceeds through preview, public publish, then public healthcheck. |
 | Worker status snapshot | `local.oursteps.worker-status` | Every 30 seconds | `scripts/worker_status_snapshot.py` | Read-only NAS worker-lock probe. Writes only sanitized owner-Control-Center status; no PID, command, path, host or secret fields are published. |
 
 The schedules above describe the currently loaded Mac mini LaunchAgents. Do not silently replace them from an older installer template.
 
-### Temporary historical-backfill acceleration — 2026-09-17
+### Temporary historical-backfill acceleration — 2026-09-19
 
-Historical backfill was raised from **5 to 10 threads per scheduled run** while keeping the existing 45-minute cap, two-hour cadence, request throttling, Busy/HTTP retry handling, authentication checks and worker/publish locks unchanged. This is a conservative throughput increase only; it is not authorization to increase request concurrency or weaken backoff. Observe roughly 24 hours of production runs before considering any further increase (for example 10 -> 15).
+Historical backfill is now running at **15 threads per scheduled run** with the existing 45-minute cap, two-hour cadence, request throttling, Busy/HTTP retry handling, authentication checks and worker/publish locks unchanged. This follows a stable 10-thread observation period and remains a throughput-only trial; do not increase request concurrency or weaken backoff. Review real completion time and Busy/500/timeout rates before considering any further increase.
 
 
 ## Manual command collision guard

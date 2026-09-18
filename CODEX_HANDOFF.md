@@ -16,7 +16,7 @@ Validated live state at close-out:
 - Guide Discovery V2 remains bounded/resumable; latest validated frontier is page **78**
 - one historical item remains deliberately missing/review-required; do not force it complete
 - existing incremental sync, historical backfill and Guide Discovery schedules remain loaded
-- historical backfill is temporarily accelerated to **max 10 threads / 45 minutes per run** from 2026-09-17; cadence remains 07:00-21:00 every two hours and all throttle/retry/backoff protections remain unchanged
+- historical backfill is temporarily accelerated to **max 15 threads / 45 minutes per run** from 2026-09-19; cadence remains 07:00-21:00 every two hours and all throttle/retry/backoff protections remain unchanged
 - FoxCloud on HTTPS 8443 remains outside this project and was not changed
 
 These counts are a dated production snapshot, not constants. Normal scheduled sync/backfill can increase them.
@@ -111,13 +111,13 @@ Routine status, logs, launchd checks, Git inspection, existing tests, healthchec
 ## Owner homepage Control Center button
 
 The full/owner homepage now receives a publisher-injected `Control Center` button linking to `/control-center.html`. The recent/tester homepage explicitly strips this link, so the UI follows the same physical scope separation as the Control Center assets themselves. Do not move this to shared preview HTML or client-side role detection.
-## Temporary throughput tuning — 2026-09-17
+## Temporary throughput tuning — 2026-09-19
 
-The production historical-backfill LaunchAgent was deliberately changed from `--max-threads 5` to `--max-threads 10`. The 45-minute cap, two-hour schedule, crawler throttle, retry/backoff, locks and publication chain are unchanged. Treat this as a 24-hour observation trial. Do not raise it again or increase concurrency without reviewing real Busy/500/timeout rates and scheduler overlap first.
+The production historical-backfill LaunchAgent is now deliberately set to `--max-threads 15` after the 10-thread trial remained stable. The 45-minute cap, two-hour schedule, crawler throttle, retry/backoff, locks and publication chain are unchanged. Treat 15 as the current observation trial; do not raise it again or increase concurrency without reviewing real completion time, Busy/500/timeout rates and scheduler overlap first.
 ## Manual worker collision protection — 2026-09-18
 
 Manual `Update`, `Authenticate`, Historical Backfill, and discovery `.command` launchers now call `scripts/archive_worker_status.py --guard` before doing work. The guard probes the NAS-native `data/worker.lock`; when a scheduled archive writer is active, manual work stops before authentication/network access. `OurSteps Worker Status.command` is the one-shot read-only status entry point. Preserve this guard when changing manual launchers.
 
 ## Live worker status + manual guard — 2026-09-18
 
-Owner Control Center now has a near-real-time Archive Worker panel. `local.oursteps.worker-status` runs every 30 seconds and writes only a sanitized status snapshot; `/control-action/worker-status` is owner/full-scope only, and stale snapshots (>90s) become `UNKNOWN`. The web payload must never expose PID, command lines, paths, hostnames, credentials or session details. Manual archive/auth `.command` entry points also guard against an active NAS worker before starting. Keep this independent from the long-running action runner so RUNNING status continues to refresh during 20–45 minute jobs. The Control Center Historical Backfill action is aligned with the production scheduler at `--max-threads 10 --max-minutes 45`.
+Owner Control Center now has a near-real-time Archive Worker panel. `local.oursteps.worker-status` runs every 30 seconds and writes only a sanitized status snapshot; `/control-action/worker-status` is owner/full-scope only, and stale snapshots (>90s) become `UNKNOWN`. The web payload must never expose PID, command lines, paths, hostnames, credentials or session details. Manual archive/auth `.command` entry points also guard against an active NAS worker before starting. Keep this independent from the long-running action runner so RUNNING status continues to refresh during 20–45 minute jobs. The Control Center Historical Backfill action is aligned with the production scheduler at `--max-threads 15 --max-minutes 45`.

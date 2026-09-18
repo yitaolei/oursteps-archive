@@ -10,7 +10,7 @@ def action_spec(action):
     mapping={
       'incremental_sync':([sys.executable,str(ROOT/'scripts/update_now.py'),'--now'],3600),
       'guide_discovery_v2':([sys.executable,str(ROOT/'scripts/history_launcher.py'),'guide-discover','--now','--max-pages','25','--max-minutes','20'],1800),
-      'historical_backfill':([sys.executable,str(ROOT/'scripts/history_launcher.py'),'backfill','--best-effort','--now','--max-threads','10','--max-minutes','45'],3600),
+      'historical_backfill':([sys.executable,str(ROOT/'scripts/history_launcher.py'),'backfill','--best-effort','--now','--max-threads','15','--max-minutes','45'],3600),
     }
     if action=='publish_public': return ('remote_publish',1200)
     if action not in mapping: raise ValueError('action not in runner allowlist')
