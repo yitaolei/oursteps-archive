@@ -73,6 +73,11 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         store.set_setting('halt','')
     if store.setting('halt'):return 'halted: inspect existing halt before retrying'
     if best_effort:store.set_setting('backfill_mode','BEST_EFFORT')
+    from .performance import Performance
+    previous_performance=getattr(store,'performance',None)
+    performance=Performance();store.performance=performance
+    perf_started=time.monotonic()
+    completed_before=store.db.execute("SELECT count(*) FROM inventory i JOIN threads t ON t.tid=i.tid WHERE t.status='complete'").fetchone()[0]
     status='complete';fetch=Fetcher(store);fetch.daily_now=now
     # Page limit extension applies only inside this explicit historical worker.
     store.historical_mode=True
@@ -119,6 +124,30 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         raise
     finally:
         store.historical_mode=False
+        completed_after=store.db.execute("SELECT count(*) FROM inventory i JOIN threads t ON t.tid=i.tid WHERE t.status='complete'").fetchone()[0]
+        perf_report=dict(
+            recorded_at=time.time(),
+            status=status,
+            elapsed_seconds=round(max(0,time.monotonic()-perf_started),6),
+            max_threads=max_threads,
+            max_minutes=max_minutes,
+            started_threads=started,
+            completed_before=completed_before,
+            completed_after=completed_after,
+            completed_this_run=max(0,completed_after-completed_before),
+            performance=performance.report(),
+        )
+        completed=perf_report['completed_this_run']
+        fetches=perf_report['performance'].get('network_fetches',0)
+        perf_report['requests_per_completed']=round(fetches/completed,6) if completed else None
+        try:
+            atomic_write(store.root/'backfill-performance.json',json.dumps(perf_report,ensure_ascii=False,indent=2).encode())
+            log_path=store.root/'logs'/'backfill-performance.jsonl';log_path.parent.mkdir(exist_ok=True)
+            with open(log_path,'a',encoding='utf-8') as log:
+                log.write(json.dumps(perf_report,ensure_ascii=False,separators=(',',':'))+'\n')
+        except OSError:
+            pass
+        store.performance=previous_performance
         # URL-only media policy:
         # image URLs remain archived in assets; historical backfill does not
         # download remote image binaries.
