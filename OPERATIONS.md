@@ -26,7 +26,7 @@ The schedules above describe the currently loaded Mac mini LaunchAgents. Do not 
 
 Historical backfill is now running at **15 threads per scheduled run** with the existing 45-minute cap, two-hour cadence, request throttling, Busy/HTTP retry handling, authentication checks and worker/publish locks unchanged. This follows a stable 10-thread observation period and remains a throughput-only trial; do not increase request concurrency or weaken backoff. Review real completion time and Busy/500/timeout rates before considering any further increase.
 
-Each historical run also writes private throughput telemetry to `data/backfill-performance.json` and appends to `data/logs/backfill-performance.jsonl`. These files contain only counts/timings (no URLs, content, cookies or credentials) and are not published. Use them to compare network, throttle, parse and persistence costs before changing concurrency or pacing.
+Each historical run also writes private throughput telemetry to `data/backfill-performance.json` and appends to `data/logs/backfill-performance.jsonl`. These files contain only counts/timings (no URLs, content, cookies or credentials) and are not published. Use them to compare crawl time, full preview-build time, network, throttle, parse and persistence costs before changing concurrency or pacing.
 
 
 ## Manual command collision guard

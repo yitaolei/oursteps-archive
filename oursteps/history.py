@@ -128,7 +128,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         perf_report=dict(
             recorded_at=time.time(),
             status=status,
-            elapsed_seconds=round(max(0,time.monotonic()-perf_started),6),
+            crawl_elapsed_seconds=round(max(0,time.monotonic()-perf_started),6),
             max_threads=max_threads,
             max_minutes=max_minutes,
             started_threads=started,
@@ -140,6 +140,16 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         completed=perf_report['completed_this_run']
         fetches=perf_report['performance'].get('network_fetches',0)
         perf_report['requests_per_completed']=round(fetches/completed,6) if completed else None
+        store.performance=previous_performance
+        # URL-only media policy:
+        # image URLs remain archived in assets; historical backfill does not
+        # download remote image binaries.
+        problems=[dict(r) for r in store.db.execute("SELECT j.tid,j.page,j.url,j.state,j.error,j.attempts,j.retry_at FROM jobs j JOIN inventory i ON i.tid=j.tid WHERE j.state!='success' ORDER BY j.tid,j.page")]
+        atomic_write(store.root/'backfill-problems.json',json.dumps(problems,ensure_ascii=False,indent=2).encode())
+        preview_started=time.monotonic()
+        build(store)
+        perf_report['preview_build_seconds']=round(max(0,time.monotonic()-preview_started),6)
+        perf_report['elapsed_seconds']=round(max(0,time.monotonic()-perf_started),6)
         try:
             atomic_write(store.root/'backfill-performance.json',json.dumps(perf_report,ensure_ascii=False,indent=2).encode())
             log_path=store.root/'logs'/'backfill-performance.jsonl';log_path.parent.mkdir(exist_ok=True)
@@ -147,13 +157,6 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
                 log.write(json.dumps(perf_report,ensure_ascii=False,separators=(',',':'))+'\n')
         except OSError:
             pass
-        store.performance=previous_performance
-        # URL-only media policy:
-        # image URLs remain archived in assets; historical backfill does not
-        # download remote image binaries.
-        problems=[dict(r) for r in store.db.execute("SELECT j.tid,j.page,j.url,j.state,j.error,j.attempts,j.retry_at FROM jobs j JOIN inventory i ON i.tid=j.tid WHERE j.state!='success' ORDER BY j.tid,j.page")]
-        atomic_write(store.root/'backfill-problems.json',json.dumps(problems,ensure_ascii=False,indent=2).encode())
-        build(store)
     return 'best_effort_pass_finished' if best_effort and status in ('complete','success','partial') else status
 
 def report(store):
