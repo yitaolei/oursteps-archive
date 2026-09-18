@@ -57,10 +57,10 @@ class HistoryTests(unittest.TestCase):
     s.db.executemany('INSERT INTO inventory VALUES(?,0,0)',[(1,),(2,)])
     key=add_shard(s,43);s.db.execute("UPDATE discovery_shards SET state='unresolved_limited'")
    fetch=Mock()
-   with patch('oursteps.history.Fetcher',return_value=fetch),patch('oursteps.cli.run',return_value='complete') as work,patch('oursteps.media.run',return_value={'downloaded_this_run':0}) as media,patch('oursteps.preview.build'):
+   with patch('oursteps.history.Fetcher',return_value=fetch),patch('oursteps.cli.run',return_value='complete') as work,patch('oursteps.media.run') as media:
     self.assertEqual(backfill(s,now=True,best_effort=True),'best_effort_pass_finished')
     self.assertTrue(fetch.daily_now);self.assertEqual(work.call_count,1)
-    self.assertEqual(work.call_args.kwargs['tids'],[2]);self.assertEqual(set(media.call_args.kwargs['tids']),{1,2})
+    self.assertEqual(work.call_args.kwargs['tids'],[2]);media.assert_not_called()
    r=report(s);self.assertEqual(r['archive_mode'],'BEST_EFFORT');self.assertEqual(r['archive_scope'],'INCOMPLETE_DISCOVERY');self.assertEqual(r['completeness'],'NO')
    self.assertEqual(s.db.execute("SELECT count(*) FROM discovery_shards WHERE state='unresolved_limited'").fetchone()[0],1)
    self.assertEqual(s.db.execute('SELECT count(*) FROM inventory').fetchone()[0],2)

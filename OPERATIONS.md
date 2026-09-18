@@ -189,3 +189,12 @@ Do not weaken these boundaries or reintroduce direct web execution.
 ## Owner homepage Control Center entry
 
 The full/owner archive homepage includes a `Control Center` button linking to `/control-center.html`. This link is injected by the public publisher only into the full-scope `index.html`; the generated recent/tester `index.html` explicitly removes it. Release validation enforces that new owner releases contain exactly one link and recent scope contains none. Older releases remain readable for rollback compatibility.
+
+
+### Historical Backfill Throughput V2 Phase A — 2026-09-19
+
+Historical Backfill now uses staged incremental preview rendering instead of a full archive-wide preview rebuild after each small batch. Eligible attempted TIDs are durably recorded in the existing NAS SQLite `settings` row `historical_preview_pending_tids` before crawl work starts. At finalization, only pending TIDs whose thread status is `complete` are rendered through `preview_batch.build_batch()`. Successful render clears only those TIDs; partial/retry TIDs remain pending for later recovery.
+
+This path is fail-closed: an incremental preview failure causes the worker to fail and prevents the launcher from publishing. There is no automatic full-preview fallback. A full rebuild remains an explicit maintenance/recovery action.
+
+09:00 production baseline: 244.707 s crawl + 1,473.144 s full preview. Real 15-TID incremental preview benchmark: 11.953 s renderer time / 12.80 s wall. See `BACKFILL_THROUGHPUT_V2.md`.

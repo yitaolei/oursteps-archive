@@ -56,13 +56,30 @@ def discover(store,now=False):
         if transient:store.set_setting('pause_until',time.time()+delay)
         return category
 
+HISTORICAL_PREVIEW_PENDING='historical_preview_pending_tids'
+
+def _historical_preview_pending(store):
+    try:
+        values=json.loads(store.setting(HISTORICAL_PREVIEW_PENDING,'[]'))
+    except (TypeError,ValueError,json.JSONDecodeError) as e:
+        raise ValueError('invalid historical preview pending state') from e
+    if not isinstance(values,list) or any(type(tid) is not int or not 0<tid<2**63 for tid in values):
+        raise ValueError('invalid historical preview pending state')
+    return set(values)
+
+def _save_historical_preview_pending(store,values):
+    values=sorted(set(values))
+    if any(type(tid) is not int or not 0<tid<2**63 for tid in values):
+        raise ValueError('invalid historical preview pending TID')
+    store.db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',
+                     (HISTORICAL_PREVIEW_PENDING,json.dumps(values,separators=(',',':'))))
+
 def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None):
     if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes)):
         raise ValueError('backfill limits must be positive integers')
     deadline=time.monotonic()+max_minutes*60 if max_minutes is not None else None
     started=0
     from .cli import run
-    from .preview import build
     prepare(store)
     if not store.db.execute('SELECT 1 FROM inventory LIMIT 1').fetchone():return 'inventory_empty: run discovery first'
     # Migrate only the old blanket redirect stop; preserve other global safeguards.
@@ -73,6 +90,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         store.set_setting('halt','')
     if store.setting('halt'):return 'halted: inspect existing halt before retrying'
     if best_effort:store.set_setting('backfill_mode','BEST_EFFORT')
+    preview_pending=_historical_preview_pending(store)
     from .performance import Performance
     previous_performance=getattr(store,'performance',None)
     performance=Performance();store.performance=performance
@@ -93,7 +111,10 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
             with store.db:
                 store.db.execute("INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,'thread',?,1)",(thread_url(tid),tid))
                 store.db.execute("UPDATE jobs SET state='pending',error='reauth_fetch',retry_at=0 WHERE tid=? AND state='auth_required' AND error LIKE 'auth_required:%' AND retry_at<?",(tid,verified))
-            eligible=store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND state IN ('pending','retry_later') AND retry_at<=?",(tid,time.time())).fetchone()
+                eligible=store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND state IN ('pending','retry_later') AND retry_at<=?",(tid,time.time())).fetchone()
+                if eligible:
+                    preview_pending.add(tid)
+                    _save_historical_preview_pending(store,preview_pending)
             if not eligible:continue
             started+=1
             limits={'deadline':deadline} if deadline is not None else {}
@@ -147,16 +168,38 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         problems=[dict(r) for r in store.db.execute("SELECT j.tid,j.page,j.url,j.state,j.error,j.attempts,j.retry_at FROM jobs j JOIN inventory i ON i.tid=j.tid WHERE j.state!='success' ORDER BY j.tid,j.page")]
         atomic_write(store.root/'backfill-problems.json',json.dumps(problems,ensure_ascii=False,indent=2).encode())
         preview_started=time.monotonic()
-        build(store)
-        perf_report['preview_build_seconds']=round(max(0,time.monotonic()-preview_started),6)
-        perf_report['elapsed_seconds']=round(max(0,time.monotonic()-perf_started),6)
+        preview_result=None;preview_error=None
         try:
-            atomic_write(store.root/'backfill-performance.json',json.dumps(perf_report,ensure_ascii=False,indent=2).encode())
-            log_path=store.root/'logs'/'backfill-performance.jsonl';log_path.parent.mkdir(exist_ok=True)
-            with open(log_path,'a',encoding='utf-8') as log:
-                log.write(json.dumps(perf_report,ensure_ascii=False,separators=(',',':'))+'\n')
-        except OSError:
-            pass
+            preview_pending=_historical_preview_pending(store)
+            complete_pending=[]
+            for tid in sorted(preview_pending):
+                row=store.db.execute('SELECT status FROM threads WHERE tid=?',(tid,)).fetchone()
+                if row is None:
+                    raise ValueError('historical preview pending TID missing: %s'%tid)
+                if row[0]=='complete':complete_pending.append(tid)
+            if complete_pending:
+                from .preview_batch import build_batch
+                preview_result=build_batch(store,complete_pending)
+                rendered=set(preview_result['tids']) & set(complete_pending)
+                preview_pending.difference_update(rendered)
+                with store.db:_save_historical_preview_pending(store,preview_pending)
+        except Exception as error:
+            preview_error=type(error).__name__+': '+str(error)
+            raise
+        finally:
+            perf_report['preview_build_seconds']=round(max(0,time.monotonic()-preview_started),6)
+            perf_report['preview_mode']='incremental' if preview_result is not None else ('failed' if preview_error else 'skipped')
+            perf_report['preview_rendered_articles']=preview_result['rendered_articles'] if preview_result is not None else 0
+            perf_report['preview_pending_tids']=len(_historical_preview_pending(store))
+            if preview_error:perf_report['preview_error']=preview_error
+            perf_report['elapsed_seconds']=round(max(0,time.monotonic()-perf_started),6)
+            try:
+                atomic_write(store.root/'backfill-performance.json',json.dumps(perf_report,ensure_ascii=False,indent=2).encode())
+                log_path=store.root/'logs'/'backfill-performance.jsonl';log_path.parent.mkdir(exist_ok=True)
+                with open(log_path,'a',encoding='utf-8') as log:
+                    log.write(json.dumps(perf_report,ensure_ascii=False,separators=(',',':'))+'\n')
+            except OSError:
+                pass
     return 'best_effort_pass_finished' if best_effort and status in ('complete','success','partial') else status
 
 def report(store):

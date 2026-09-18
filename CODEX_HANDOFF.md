@@ -122,3 +122,10 @@ Manual `Update`, `Authenticate`, Historical Backfill, and discovery `.command` l
 ## Live worker status + manual guard — 2026-09-18
 
 Owner Control Center now has a near-real-time Archive Worker panel. `local.oursteps.worker-status` runs every 30 seconds and writes only a sanitized status snapshot; `/control-action/worker-status` is owner/full-scope only, and stale snapshots (>90s) become `UNKNOWN`. The web payload must never expose PID, command lines, paths, hostnames, credentials or session details. Manual archive/auth `.command` entry points also guard against an active NAS worker before starting. Keep this independent from the long-running action runner so RUNNING status continues to refresh during 20–45 minute jobs. The Control Center Historical Backfill action is aligned with the production scheduler at `--max-threads 15 --max-minutes 45`.
+
+
+## Historical Backfill Throughput V2 Phase A — 2026-09-19
+
+Historical Backfill now persists eligible attempted TIDs in the NAS SQLite `settings` row `historical_preview_pending_tids` before crawling and renders only completed pending TIDs through staged `preview_batch.build_batch()`. Partial/retry TIDs survive restarts; successful incremental render clears only rendered historical TIDs. Stage failure is fail-closed and must not auto-fallback to a full preview build.
+
+Measured 09:00 baseline: 15/15 completed, 23 network fetches, 1.533 requests/completed thread, 244.707 s crawl, 1,473.144 s full preview. Real 15-TID incremental preview: 11.953 s. Do not raise request concurrency until post-Phase-A production telemetry shows the next bottleneck. See `BACKFILL_THROUGHPUT_V2.md`.
