@@ -129,3 +129,7 @@ Owner Control Center now has a near-real-time Archive Worker panel. `local.ourst
 Historical Backfill now persists eligible attempted TIDs in the NAS SQLite `settings` row `historical_preview_pending_tids` before crawling and renders only completed pending TIDs through staged `preview_batch.build_batch()`. Partial/retry TIDs survive restarts; successful incremental render clears only rendered historical TIDs. Stage failure is fail-closed and must not auto-fallback to a full preview build.
 
 Measured 09:00 baseline: 15/15 completed, 23 network fetches, 1.533 requests/completed thread, 244.707 s crawl, 1,473.144 s full preview. Real 15-TID incremental preview: 11.953 s. Do not raise request concurrency until post-Phase-A production telemetry shows the next bottleneck. See `BACKFILL_THROUGHPUT_V2.md`.
+
+## Throughput V2 Phase B pacing telemetry — 2026-09-19
+
+17:00 production evidence: 13/15 completed, 687.772 s crawl, 585.995 s aggregate throttle, 7.705 s network, 27.960 s parse, 17.249 s persistence, 16.772 s incremental preview, 2 network errors, 1.385 requests/completed thread. Post-run `adaptive_delay` remained 27.91 s and `pause_until` had expired. New telemetry splits base pacing, adaptive pacing and global backoff without changing any pacing/backoff behavior. Do not increase concurrency or request rate; collect subsequent production evidence first.

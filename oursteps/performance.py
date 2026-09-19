@@ -23,7 +23,8 @@ class Performance:
     def report(self):
         keys = ('network_fetches', 'thread_page_fetches', 'repeated_page_fetches',
                 'successful_page_refetches', 'network_errors', 'network_timeouts', 'prior_snapshot_fetches', 'network_seconds',
-                'throttle_seconds', 'parse_seconds', 'persistence_seconds', 'cached_page_uses', 'fetch_seconds')
+                'throttle_seconds', 'pacing_base_seconds', 'pacing_adaptive_seconds', 'backoff_seconds',
+                'parse_seconds', 'persistence_seconds', 'cached_page_uses', 'fetch_seconds')
         result={key: round(self.values.get(key, 0), 6) for key in keys}
         result.update({key:round(value,6) for key,value in self.values.items() if key.startswith('persistence_')})
         # Disjoint timed components; inclusive refresh/snapshot/save_page are separate views.

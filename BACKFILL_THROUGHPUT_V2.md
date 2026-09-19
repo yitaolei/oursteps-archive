@@ -141,3 +141,11 @@ The instrumented 15-thread run completed all 15 TIDs with 23 network fetches (22
 A real incremental preview run for 15 complete TIDs through `archive.py build-preview --tids ...` took 11.953 s renderer time and 12.80 s wall time with `full_rebuild=false`. This confirms staged incremental preview is the first-order throughput optimization.
 
 Phase A implementation uses the existing NAS SQLite `settings` table as a durable pending set under `historical_preview_pending_tids`. Each eligible historical TID is persisted before its crawl starts. Only pending TIDs that become `complete` are sent to `preview_batch.build_batch()`; successful renders clear those TIDs, while partial/retry TIDs remain pending across restarts. Incremental-stage failure is fail-closed and does not silently trigger a full rebuild.
+
+## Phase B pacing diagnostics — 2026-09-19 17:00 production run
+
+The 17:00 production run recovered substantially from the earlier Busy-heavy anomaly: 13/15 threads completed in 687.772 s, with 18 network fetches, 2 network errors, 7.705 s network time, 27.960 s parse time, 17.249 s persistence time, and a 16.772 s incremental preview. Requests per completed thread returned to 1.385.
+
+The dominant measured component was 585.995 s in `throttle_seconds`. Post-run state showed `adaptive_delay=27.91s` while `pause_until` was already expired. This is strong evidence that most of the 17:00 wait was adaptive request pacing rather than active global Busy backoff, but the existing metric could not prove the split directly.
+
+Phase B therefore adds telemetry only: `pacing_base_seconds`, `pacing_adaptive_seconds`, and `backoff_seconds`, while retaining the existing aggregate `throttle_seconds`. No request rate, concurrency, robots policy, retry/backoff rule, adaptive-delay calculation, worker lock, or publication behavior changes in this checkpoint. Use subsequent clean production runs to determine whether adaptive pacing is the next structural bottleneck before considering any algorithm change.

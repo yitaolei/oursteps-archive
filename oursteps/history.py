@@ -133,7 +133,8 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
                         if remaining<=0 or pause_until-time.time()>=remaining:
                             status='budget_reached';break
                         delay=min(delay,remaining)
-                    time.sleep(delay)
+                    from .performance import measure
+                    measure(store,'backoff_seconds',time.sleep,delay)
                     pause_until = float(store.setting('pause_until','0'))
                 if status=='budget_reached':break
                 status = 'partial'

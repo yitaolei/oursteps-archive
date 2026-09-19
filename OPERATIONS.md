@@ -198,3 +198,7 @@ Historical Backfill now uses staged incremental preview rendering instead of a f
 This path is fail-closed: an incremental preview failure causes the worker to fail and prevents the launcher from publishing. There is no automatic full-preview fallback. A full rebuild remains an explicit maintenance/recovery action.
 
 09:00 production baseline: 244.707 s crawl + 1,473.144 s full preview. Real 15-TID incremental preview benchmark: 11.953 s renderer time / 12.80 s wall. See `BACKFILL_THROUGHPUT_V2.md`.
+
+### Historical Backfill Phase B pacing telemetry — 2026-09-19
+
+Backfill performance telemetry now splits waiting into `pacing_base_seconds`, `pacing_adaptive_seconds`, and `backoff_seconds`, while preserving `throttle_seconds` as the aggregate request-pacing measure. This is observability only: do not infer permission to reduce pacing or increase concurrency. Review multiple clean production runs before changing adaptive-delay or backoff behavior.

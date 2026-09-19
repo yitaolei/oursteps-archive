@@ -155,9 +155,17 @@ class Fetcher:
         jar, self.mode = session(store,saved_session)
         self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPCookieProcessor(jar))
 
-    def sleep(self, seconds):
+    def sleep(self, seconds, detail_key='pacing_base_seconds'):
         from .performance import measure
-        return measure(self.store, 'throttle_seconds', time.sleep, seconds)
+        def _sleep():
+            started=time.monotonic()
+            try:
+                return time.sleep(seconds)
+            finally:
+                perf=getattr(self.store,'performance',None)
+                if perf is not None:
+                    perf.add(detail_key,time.monotonic()-started)
+        return measure(self.store, 'throttle_seconds', _sleep)
 
     def open_response(self, request, **kwargs):
         from .performance import measure
@@ -211,8 +219,11 @@ class Fetcher:
     def request(self, url, _redirects=()):
         validate_url(url)
         self.wait_window()
-        pace = max(self.delay, random.uniform(2,5), float(self.store.setting('adaptive_delay', '0')))
-        self.sleep(max(0, pace-(time.time()-float(self.store.setting('last_request', '0')))))
+        base_pace=max(self.delay, random.uniform(2,5))
+        adaptive=float(self.store.setting('adaptive_delay', '0'))
+        pace=max(base_pace,adaptive)
+        self.sleep(max(0, pace-(time.time()-float(self.store.setting('last_request', '0')))),
+                   'pacing_adaptive_seconds' if adaptive>base_pace else 'pacing_base_seconds')
         self.wait_window()
         self.store.set_setting('last_request', time.time())
         req = urllib.request.Request(url, headers={'User-Agent':AGENT, 'Accept':'text/html,text/plain'})
