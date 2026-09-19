@@ -12,6 +12,7 @@ import sqlite3
 import stat
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'.deps')]
@@ -274,11 +275,15 @@ def validate_saved(root, target):
 
 def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, preview_hashes=None):
     root = Path(root)
+    started = time.monotonic()
+    performance = {}
     with locks(root):
         config_check(root)
         site = root/'public-site'; directory(site); directory(site/'releases')
         old = pointer(site, 'current')
+        phase = time.monotonic()
         old_report = validate_saved(root, old) if old else None
+        performance['previous_validation_seconds'] = round(time.monotonic()-phase, 6)
         if rollback:
             previous = pointer(site,'previous')
             require(previous is not None, 'no previous release')
@@ -318,14 +323,17 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
         source_hashes['article-views.json'] = hashlib.sha256(analytics_content).hexdigest()
         owner_content = control_center_files(root, len(expected), len(recent['allowed']))
         source_hashes.update({name:hashlib.sha256(data).hexdigest() for name,data in owner_content.items()})
+        performance['prepare_seconds'] = round(time.monotonic()-started-sum(performance.values()), 6)
         if (old_report and old_report.get('recent', {}).get('allowed') == recent['allowed']
                 and source_hashes == {name:digest for name,digest in old_report['hashes'].items() if '/' not in name}):
+            performance['total_seconds'] = round(time.monotonic()-started, 6)
             return {'status':'unchanged', 'release':old, 'articles':old_report['articles'],
                     'recent_articles':len(recent['allowed']), 'cutoff':recent['cutoff'],
-                    'excluded_missing_dates':recent['excluded_missing_dates']}
+                    'excluded_missing_dates':recent['excluded_missing_dates'], 'performance':performance}
         directory(root/'data/public-releases')
         stage = Path(tempfile.mkdtemp(prefix='.public-release-', dir=str(root)))
         try:
+            phase = time.monotonic()
             stage.chmod(0o755)
             for item in selected:
                 if old_report and old_report['hashes'].get(item.name) == source_hashes[item.name]:
@@ -341,9 +349,17 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
             write_atomic(stage/'article-views.json', analytics_content); (stage/'article-views.json').chmod(0o644)
             for name,data in owner_content.items():
                 write_atomic(stage/name,data); (stage/name).chmod(0o644)
+            performance['full_stage_seconds'] = round(time.monotonic()-phase, 6)
+            phase = time.monotonic()
             validate(stage,expected,owner=True,require_control=True,require_generated=True,require_owner_link=True)
+            performance['full_validation_seconds'] = round(time.monotonic()-phase, 6)
+            phase = time.monotonic()
             stage_recent(stage, set(recent['allowed']))
+            performance['recent_stage_seconds'] = round(time.monotonic()-phase, 6)
+            phase = time.monotonic()
             report = validate(stage,expected,recent,owner=True,require_control=True,require_generated=True,require_owner_link=True)
+            performance['final_validation_seconds'] = round(time.monotonic()-phase, 6)
+            phase = time.monotonic()
             release_id = hashlib.sha256(json.dumps(report['hashes'],sort_keys=True).encode()).hexdigest()
             target = 'releases/'+release_id
             dest = site/target
@@ -352,10 +368,13 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
             else:
                 sync_dir(stage); os.rename(str(stage),str(dest)); sync_dir(site/'releases')
             write_atomic(metadata(root,target),json.dumps(report,sort_keys=True).encode())
-            if old == target: return {'status':'unchanged','release':target, 'articles':report['articles'], 'recent_articles':report['recent_articles'], 'cutoff':recent['cutoff'], 'excluded_missing_dates':recent['excluded_missing_dates']}
-            # Persist rollback pointer before the single atomic live switch.
-            switch(site,'previous',old or target)
-            switch(site,'current',target)
-            return {'status':'published','release':target, 'articles':report['articles'], 'recent_articles':report['recent_articles'], 'cutoff':recent['cutoff'], 'excluded_missing_dates':recent['excluded_missing_dates']}
+            if old != target:
+                # Persist rollback pointer before the single atomic live switch.
+                switch(site,'previous',old or target)
+                switch(site,'current',target)
+            performance['finalize_seconds'] = round(time.monotonic()-phase, 6)
+            performance['total_seconds'] = round(time.monotonic()-started, 6)
+            status = 'unchanged' if old == target else 'published'
+            return {'status':status,'release':target, 'articles':report['articles'], 'recent_articles':report['recent_articles'], 'cutoff':recent['cutoff'], 'excluded_missing_dates':recent['excluded_missing_dates'], 'performance':performance}
         finally:
             if stage.exists(): shutil.rmtree(stage)

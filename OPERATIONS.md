@@ -202,3 +202,9 @@ This path is fail-closed: an incremental preview failure causes the worker to fa
 ### Historical Backfill Phase B pacing telemetry — 2026-09-19
 
 Backfill performance telemetry now splits waiting into `pacing_base_seconds`, `pacing_adaptive_seconds`, and `backoff_seconds`, while preserving `throttle_seconds` as the aggregate request-pacing measure. This is observability only: do not infer permission to reduce pacing or increase concurrency. Review multiple clean production runs before changing adaptive-delay or backoff behavior.
+
+19:00 clean production confirmation: 15/15 completed, 143.893 s crawl, 165.475 s worker total, zero network errors/timeouts, 24.008 s throttle split into 0.542 s base pacing + 23.466 s adaptive pacing + 0 s backoff, 21.284 s incremental preview, and zero pending preview TIDs. Treat Phase A as complete.
+
+Public publishing now emits timing-only `performance` fields for previous-release validation, preparation, full staging, full validation, recent-1y staging, final validation, finalize/switch, and total publish time. `public_healthcheck.py` emits `HEALTHCHECK_SECONDS`. These metrics must not be included in release manifests or release hashes. Use the first changed production release after this checkpoint to close Phase B before changing publish logic.
+
+Production Phase B measurement on 5,811 articles: healthcheck was 66.536 s before simplification; unchanged publish was 24.904 s (19.070 s previous/current validation + 5.832 s prepare/hash). Healthcheck was redundantly scanning current twice. It now uses `validate_saved(current)` once, explicitly compares current article TIDs and recent policy with NAS SQLite expectations, and still fully validates `previous`. Re-measurement: PASS in 37.741 s. Preserve this invariant; do not skip previous rollback validation without a separate design/review.

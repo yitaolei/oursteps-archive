@@ -149,3 +149,19 @@ The 17:00 production run recovered substantially from the earlier Busy-heavy ano
 The dominant measured component was 585.995 s in `throttle_seconds`. Post-run state showed `adaptive_delay=27.91s` while `pause_until` was already expired. This is strong evidence that most of the 17:00 wait was adaptive request pacing rather than active global Busy backoff, but the existing metric could not prove the split directly.
 
 Phase B therefore adds telemetry only: `pacing_base_seconds`, `pacing_adaptive_seconds`, and `backoff_seconds`, while retaining the existing aggregate `throttle_seconds`. No request rate, concurrency, robots policy, retry/backoff rule, adaptive-delay calculation, worker lock, or publication behavior changes in this checkpoint. Use subsequent clean production runs to determine whether adaptive pacing is the next structural bottleneck before considering any algorithm change.
+
+## Phase A close-out and 19:00 clean production confirmation
+
+Phase A is complete. The 19:00 production run completed 15/15 threads in 143.893 s crawl / 165.475 s total worker time, with 22 network fetches, zero network errors/timeouts, 1.467 requests per completed thread, 21.284 s incremental preview, and zero preview-pending TIDs. The two TIDs left pending by the earlier Busy-heavy run were recovered automatically without a manual full rebuild.
+
+The new pacing split showed 24.008 s aggregate throttle: 0.542 s base pacing, 23.466 s adaptive pacing, and 0 s global backoff. Network time was 2.953 s, parse 37.983 s, persistence 22.202 s, and SQLite commit time 19.483 s across 64 commits. This clean run confirms adaptive pacing is not a structural bottleneck when the upstream site is healthy.
+
+## Phase B public-release telemetry
+
+Phase B now instruments the remaining publish path without changing release semantics. `publish()` reports previous-release validation, preparation/source hashing, full-release staging, full validation, recent-1y staging, final validation, finalize/switch, and total publish seconds. `public_healthcheck.py` reports `HEALTHCHECK_SECONDS`. These timing fields are excluded from release manifests and release identity, so deterministic releases remain unchanged.
+
+Phase B is not closed until at least one changed production release records these timings. If publish/healthcheck remain small relative to crawl, mark Phase B complete and proceed to Phase C; do not optimize release validation merely because it is O(total archive) unless production timing justifies it.
+
+A production read-only measurement on 5,811 current articles showed the pre-simplification public healthcheck took 66.536 s. An idempotent unchanged publish took 24.904 s, including 19.070 s validating the previous/current release state and 5.832 s preparation/source hashing. Inspection found the healthcheck fully validated the current release twice: once directly against DB expectations and again through `validate_saved()`.
+
+The low-risk Phase B simplification removes only that duplicate current scan. `validate_saved(current)` still performs the complete release/hash/manifest validation; the healthcheck then explicitly compares its article TIDs and recent policy with current NAS SQLite expectations, and still fully validates `previous` for rollback safety. Production re-measurement passed and reduced healthcheck time to 37.741 s, a 43% reduction, without weakening current/previous checksum, DB parity, recent-scope, privacy, or rollback invariants.

@@ -133,3 +133,9 @@ Measured 09:00 baseline: 15/15 completed, 23 network fetches, 1.533 requests/com
 ## Throughput V2 Phase B pacing telemetry — 2026-09-19
 
 17:00 production evidence: 13/15 completed, 687.772 s crawl, 585.995 s aggregate throttle, 7.705 s network, 27.960 s parse, 17.249 s persistence, 16.772 s incremental preview, 2 network errors, 1.385 requests/completed thread. Post-run `adaptive_delay` remained 27.91 s and `pause_until` had expired. New telemetry splits base pacing, adaptive pacing and global backoff without changing any pacing/backoff behavior. Do not increase concurrency or request rate; collect subsequent production evidence first.
+
+19:00 clean run closes Phase A: 15/15 completed in 143.893 s crawl / 165.475 s total; zero network errors/timeouts; 24.008 s throttle = 0.542 s base + 23.466 s adaptive + 0 s backoff; 21.284 s incremental preview; pending preview TIDs returned to zero. Adaptive pacing is not a structural bottleneck when OurSteps is healthy.
+
+Phase B now instruments public-release timing only: previous validation, prepare/source hashing, full stage, full validation, recent-1y stage, final validation, finalize/switch, total publish, plus `HEALTHCHECK_SECONDS`. Release hashes/manifests are unchanged. Wait for the first changed production publish with these metrics; if publish/healthcheck are minor relative to crawl, mark Phase B DONE and move to Phase C. Do not optimize release validation or add concurrency before that evidence.
+
+Production measurement at 5,811 articles found healthcheck 66.536 s and unchanged publish 24.904 s, with 19.070 s in previous/current validation. Healthcheck was doing a redundant second full scan of current. The safe simplification keeps `validate_saved(current)`, explicit DB/current TID + recent-policy parity, and full `previous` rollback validation. Production recheck PASS: 37.741 s healthcheck (~43% faster). Do not weaken previous-release validation without separate evidence and review.
