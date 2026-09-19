@@ -12,7 +12,7 @@ from oursteps.parser import (Blocked,Busy,ParseError,parse_thread,parse_discover
                              thread_url,directory_url)
 from oursteps.store import Store
 from oursteps.cli import run
-from oursteps.fetch import in_window,validate_url,Fetcher,OutsideWindow,longest_rule_allowed
+from oursteps.fetch import in_window,validate_url,Fetcher,OutsideWindow,longest_rule_allowed,next_adaptive_delay
 
 FIX = Path(__file__).parent/'fixtures'
 FIRST = (FIX/'thread-first.html').read_bytes()
@@ -57,6 +57,12 @@ class ParserTests(unittest.TestCase):
     def test_wrong_owner_rejected(self):
         with self.assertRaises(ParseError):
             parse_thread(FIRST.replace(b'uid=424242',b'uid=55',1),thread_url(1902000))
+
+    def test_adaptive_delay_decays_faster_only_when_healthy(self):
+        self.assertEqual(next_adaptive_delay(20,1,True),16)
+        self.assertEqual(next_adaptive_delay(20,1,False),18)
+        self.assertEqual(next_adaptive_delay(8,6,True),12)
+        self.assertEqual(next_adaptive_delay(200,1,True),120)
 
     def test_windows_and_route_allowlist(self):
         for hour,expected in ((13,False),(14,True),(21,True),(22,False)):

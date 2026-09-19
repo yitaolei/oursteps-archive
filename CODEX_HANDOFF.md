@@ -139,3 +139,8 @@ Measured 09:00 baseline: 15/15 completed, 23 network fetches, 1.533 requests/com
 Phase B now instruments public-release timing only: previous validation, prepare/source hashing, full stage, full validation, recent-1y stage, final validation, finalize/switch, total publish, plus `HEALTHCHECK_SECONDS`. Release hashes/manifests are unchanged. Wait for the first changed production publish with these metrics; if publish/healthcheck are minor relative to crawl, mark Phase B DONE and move to Phase C. Do not optimize release validation or add concurrency before that evidence.
 
 Production measurement at 5,811 articles found healthcheck 66.536 s and unchanged publish 24.904 s, with 19.070 s in previous/current validation. Healthcheck was doing a redundant second full scan of current. The safe simplification keeps `validate_saved(current)`, explicit DB/current TID + recent-policy parity, and full `previous` rollback validation. Production recheck PASS: 37.741 s healthcheck (~43% faster). Do not weaken previous-release validation without separate evidence and review.
+
+
+## Adaptive pacing recovery — 2026-09-20
+
+07:00 completed 15/15 with no network errors/timeouts but still spent 57.886 s in adaptive pacing because yesterday's penalty decayed too slowly. Fetch success decay is now health-sensitive: HTTP 200 + `error_streak=0` uses 0.8 retention; recovery/non-200 keeps 0.9. This never bypasses robots/base pacing and does not alter error escalation, backoff, concurrency, or locks. Validate against the next clean production backfill before any further pacing change.

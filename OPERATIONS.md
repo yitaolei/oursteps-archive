@@ -208,3 +208,8 @@ Backfill performance telemetry now splits waiting into `pacing_base_seconds`, `p
 Public publishing now emits timing-only `performance` fields for previous-release validation, preparation, full staging, full validation, recent-1y staging, final validation, finalize/switch, and total publish time. `public_healthcheck.py` emits `HEALTHCHECK_SECONDS`. These metrics must not be included in release manifests or release hashes. Use the first changed production release after this checkpoint to close Phase B before changing publish logic.
 
 Production Phase B measurement on 5,811 articles: healthcheck was 66.536 s before simplification; unchanged publish was 24.904 s (19.070 s previous/current validation + 5.832 s prepare/hash). Healthcheck was redundantly scanning current twice. It now uses `validate_saved(current)` once, explicitly compares current article TIDs and recent policy with NAS SQLite expectations, and still fully validates `previous`. Re-measurement: PASS in 37.741 s. Preserve this invariant; do not skip previous rollback validation without a separate design/review.
+
+
+### Adaptive pacing recovery — 2026-09-20
+
+Clean historical runs no longer carry old transient-network adaptive penalties for as long. After an HTTP 200 response, if `error_streak=0`, the stored adaptive delay retains 80% of its previous value instead of 90%; while recovering from errors, and for non-200 responses, the conservative 90% rule remains. Robots/crawl-delay and the existing Fetcher base pace remain the hard minimum. 429/5xx/Busy escalation, pause/backoff, request concurrency, and worker locks are unchanged.

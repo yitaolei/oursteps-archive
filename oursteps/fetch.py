@@ -148,6 +148,10 @@ def validate_url(url):
         return
     raise Blocked('network_route_not_enabled_in_pilot')
 
+def next_adaptive_delay(current, latency, healthy):
+    decay = 0.8 if healthy else 0.9
+    return min(120, max(latency*2, current*decay))
+
 class Fetcher:
     def __init__(self, store, wait=False, saved_session=None):
         self.store, self.wait = store, wait
@@ -236,7 +240,8 @@ class Fetcher:
             snap = self.store.snapshot(url, body, status=status, mode=self.mode)
             latency = time.time()-float(self.store.setting('last_request', '0'))
             adaptive = float(self.store.setting('adaptive_delay', '0'))
-            self.store.set_setting('adaptive_delay', min(120, max(latency*2, adaptive*0.9)))
+            healthy = status == 200 and self.store.setting('error_streak','0') == '0'
+            self.store.set_setting('adaptive_delay', next_adaptive_delay(adaptive, latency, healthy))
             if status == 429:
                 raise RateLimited(retry_after(response.headers.get('Retry-After')))
             if status in (404,410):

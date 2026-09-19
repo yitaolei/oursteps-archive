@@ -165,3 +165,12 @@ Phase B is not closed until at least one changed production release records thes
 A production read-only measurement on 5,811 current articles showed the pre-simplification public healthcheck took 66.536 s. An idempotent unchanged publish took 24.904 s, including 19.070 s validating the previous/current release state and 5.832 s preparation/source hashing. Inspection found the healthcheck fully validated the current release twice: once directly against DB expectations and again through `validate_saved()`.
 
 The low-risk Phase B simplification removes only that duplicate current scan. `validate_saved(current)` still performs the complete release/hash/manifest validation; the healthcheck then explicitly compares its article TIDs and recent policy with current NAS SQLite expectations, and still fully validates `previous` for rollback safety. Production re-measurement passed and reduced healthcheck time to 37.741 s, a 43% reduction, without weakening current/previous checksum, DB parity, recent-scope, privacy, or rollback invariants.
+
+
+## Phase C adaptive recovery — 2026-09-20
+
+07:00 production completed 15/15 with zero network errors/timeouts, but still spent 57.886 s in adaptive pacing while `error_streak=0`. Inspection showed that a transient-error penalty persisted in SQLite and successful responses only retained 90% of the prior adaptive delay each time, so clean runs could remain slowed by yesterday's network conditions.
+
+The recovery rule is now bounded and health-sensitive: successful HTTP 200 responses with `error_streak=0` retain 80% of the previous adaptive delay; responses while recovering from an error streak, and non-200 responses, retain the previous 90% decay behavior. Existing robots/base pacing remains the hard floor, transient errors still double adaptive delay, pause/backoff rules are unchanged, and no concurrency is added.
+
+Focused tests cover healthy vs recovering decay, latency floor, and the 120 s cap.
