@@ -225,3 +225,7 @@ Historical Backfill now runs `publish_public.py` without immediately chaining `p
 ### Publish final-validation reuse — 2026-09-20
 
 Changed publish now validates the staged top-level release once. After `recent-1y/` is created, only the recent subtree is validated and cross-checked against the already validated full hashes/search index; those hashes are then merged into the final release manifest. Do not reintroduce a second full top-level scan unless `stage_recent()` is changed to mutate top-level files.
+
+### Changed publish skips old full prescan — 2026-09-20
+
+For changed releases, publisher no longer fully scans current before staging. Old manifest hashes are used only to choose hardlink candidates, and the staged top-level release must then hash exactly to the authoritative preview/source hashes before live switch. Unchanged publish and rollback still perform full saved-release validation. Preserve the staged-source equality check if hardlink logic changes.

@@ -200,3 +200,11 @@ The changed-release path previously scanned the entire staged top-level release 
 The publisher now keeps the first full validation report/hashes, stages `recent-1y/`, validates only that new subtree, verifies every shared recent article/static hash against the already validated full hashes, verifies the recent search index is exactly the allowed subset of the validated full search index, then merges recent hashes into the final manifest. Deterministic release identity still includes both full and recent hashes.
 
 This preserves the pre-switch full-release integrity check and recent/full parity while avoiding a second read/hash pass over all top-level articles. Focused tests cover recent tamper detection, idempotency/rollback, and scope/rolling-hash behavior.
+
+## Phase C changed-publish previous-release prescan removal — 2026-09-20
+
+Changed publishes previously spent about 18–19 s fully validating the current release before staging, mainly to make hardlink reuse trustworthy. That full prescan is unnecessary when the new stage itself is fully validated against the authoritative current preview/source hashes before any live pointer switch.
+
+Publish now reads the prior release metadata only for hardlink candidate selection. For a genuinely changed publish, it does not pre-scan every old article. After staging, the one full top-level validation must produce hashes exactly equal to `source_hashes`; therefore any stale/tampered old hardlink source fails closed before `current` can switch. A focused test tampers an old shared `style.css`, forces a changed publish, and confirms publication is refused by the staged-source parity check.
+
+The unchanged fast path remains conservative: when source hashes/recent policy exactly match the old manifest, `validate_saved(current)` still runs before returning `unchanged`. Rollback also retains full validation of current/previous. This optimization therefore targets changed historical publishes only and should remove roughly the prior `previous_validation_seconds` cost without weakening source parity.

@@ -319,10 +319,8 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
         config_check(root)
         site = root/'public-site'; directory(site); directory(site/'releases')
         old = pointer(site, 'current')
-        phase = time.monotonic()
-        old_report = validate_saved(root, old) if old else None
-        performance['previous_validation_seconds'] = round(time.monotonic()-phase, 6)
         if rollback:
+            if old: validate_saved(root, old)
             previous = pointer(site,'previous')
             require(previous is not None, 'no previous release')
             validate_saved(root, previous)
@@ -362,12 +360,17 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
         owner_content = control_center_files(root, len(expected), len(recent['allowed']))
         source_hashes.update({name:hashlib.sha256(data).hexdigest() for name,data in owner_content.items()})
         performance['prepare_seconds'] = round(time.monotonic()-started-sum(performance.values()), 6)
+        old_report = json.loads(metadata(root,old).read_text()) if old else None
         if (old_report and old_report.get('recent', {}).get('allowed') == recent['allowed']
                 and source_hashes == {name:digest for name,digest in old_report['hashes'].items() if '/' not in name}):
+            phase=time.monotonic()
+            old_report=validate_saved(root,old)
+            performance['previous_validation_seconds'] = round(time.monotonic()-phase, 6)
             performance['total_seconds'] = round(time.monotonic()-started, 6)
             return {'status':'unchanged', 'release':old, 'articles':old_report['articles'],
                     'recent_articles':len(recent['allowed']), 'cutoff':recent['cutoff'],
                     'excluded_missing_dates':recent['excluded_missing_dates'], 'performance':performance}
+        performance['previous_validation_seconds'] = 0.0
         directory(root/'data/public-releases')
         stage = Path(tempfile.mkdtemp(prefix='.public-release-', dir=str(root)))
         try:
@@ -390,6 +393,7 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
             performance['full_stage_seconds'] = round(time.monotonic()-phase, 6)
             phase = time.monotonic()
             full_report=validate(stage,expected,owner=True,require_control=True,require_generated=True,require_owner_link=True)
+            require(full_report['hashes'] == source_hashes, 'staged full release differs from validated source')
             performance['full_validation_seconds'] = round(time.monotonic()-phase, 6)
             phase = time.monotonic()
             stage_recent(stage, set(recent['allowed']))

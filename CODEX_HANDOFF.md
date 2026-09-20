@@ -160,3 +160,7 @@ Backfill previously spent about 71.8 s publishing and then another 37.7 s immedi
 ## Final publish validation reuse — 2026-09-20
 
 `publish()` no longer re-hashes the entire top-level stage after `stage_recent()`. It retains the first full validation result, validates only `recent-1y/`, cross-checks shared recent files and search-index subset against the validated full release, and merges recent hashes into the deterministic manifest. This removes the second ~5.9k-article scan without weakening the pre-switch full validation or release identity. Focused public-release tests pass.
+
+## Changed-publish old-release prescan removal — 2026-09-20
+
+Changed production publish previously paid ~18–19 s to `validate_saved(current)` before staging. It now loads old metadata only, reuses hardlinks by manifest match, then requires the fully validated staged top-level hashes to equal current authoritative `source_hashes`. Tampered/stale hardlinks therefore fail before pointer switch. The unchanged fast path still validates current fully; rollback still validates current/previous fully. Focused tamper/idempotency/fail-closed tests pass.

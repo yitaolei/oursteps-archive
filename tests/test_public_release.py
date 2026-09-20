@@ -78,6 +78,14 @@ class PublicTests(unittest.TestCase):
             with self.assertRaises(BlockingIOError):self.publish()
         (self.root/'data/preview/evil').symlink_to('/tmp')
         with self.assertRaises(ValueError):self.publish()
+    def test_changed_publish_detects_tampered_hardlink_source_without_prescan(self):
+        first=self.publish();site=self.root/'public-site';old=site/first['release']
+        (old/'style.css').write_text('tampered')
+        page=self.root/'data/preview/1902000.html';page.write_text(page.read_text()+'\n')
+        with self.assertRaisesRegex(ValueError,'staged full release differs from validated source'):
+            self.publish()
+        self.assertEqual(pub.pointer(site,'current'),first['release'])
+
     def test_failed_current_switch_keeps_old(self):
         first=self.publish();p=self.root/'data/preview/1902000.html';p.write_text(p.read_text()+'\n')
         switch=pub.switch
