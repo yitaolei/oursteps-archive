@@ -221,3 +221,7 @@ Clean historical runs no longer carry old transient-network adaptive penalties f
 ### Historical post-publish fast check — 2026-09-20
 
 Historical Backfill now runs `publish_public.py` without immediately chaining `public_healthcheck.py`. The publisher itself performs a cheap post-switch integrity check of current/previous pointers, release metadata identity, and article/recent counts. Full `public_healthcheck.py` remains available and unchanged as an independent integrity sweep. Do not re-add an immediate full scan after every backfill unless production evidence shows the fast post-publish invariant is insufficient.
+
+### Publish final-validation reuse — 2026-09-20
+
+Changed publish now validates the staged top-level release once. After `recent-1y/` is created, only the recent subtree is validated and cross-checked against the already validated full hashes/search index; those hashes are then merged into the final release manifest. Do not reintroduce a second full top-level scan unless `stage_recent()` is changed to mutate top-level files.

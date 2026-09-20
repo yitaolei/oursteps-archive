@@ -206,6 +206,25 @@ def validate(path, expected, recent=None, allow_empty=False, owner=False, requir
     return result
 
 
+def validate_recent_from_full(path, full, recent, require_generated=False):
+    """Validate only recent-1y after an already validated immutable top-level stage."""
+    tids={ARTICLE.fullmatch(name)[1] for name in full['hashes'] if ARTICLE.fullmatch(name)}
+    require(set(recent['allowed']) <= tids, 'recent TIDs outside full scope')
+    scoped=validate(path/'recent-1y',recent['allowed'],allow_empty=True,owner=False,require_generated=require_generated)
+    for name,digest in scoped['hashes'].items():
+        if name not in {'index.html','search-index.json'}:
+            require(digest == full['hashes'].get(name), 'scoped article/static differs from full source: '+name)
+    index=json.loads((path/'search-index.json').read_text())
+    recent_index=json.loads((path/'recent-1y/search-index.json').read_text())
+    require(recent_index == {tid:index[tid] for tid in recent['allowed']}, 'scoped search content differs from allowed source')
+    report=dict(full)
+    report['hashes']=dict(full['hashes'])
+    report['hashes'].update({'recent-1y/'+name:value for name,value in scoped['hashes'].items()})
+    report['recent']=recent
+    report['recent_articles']=scoped['articles']
+    return report
+
+
 def config_check(root):
     compose = (root/'compose.public.yaml').read_text()
     block = compose.split('    volumes:',1)[1].split('    read_only:',1)[0]
@@ -370,13 +389,13 @@ def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, pr
                 write_atomic(stage/name,data); (stage/name).chmod(0o644)
             performance['full_stage_seconds'] = round(time.monotonic()-phase, 6)
             phase = time.monotonic()
-            validate(stage,expected,owner=True,require_control=True,require_generated=True,require_owner_link=True)
+            full_report=validate(stage,expected,owner=True,require_control=True,require_generated=True,require_owner_link=True)
             performance['full_validation_seconds'] = round(time.monotonic()-phase, 6)
             phase = time.monotonic()
             stage_recent(stage, set(recent['allowed']))
             performance['recent_stage_seconds'] = round(time.monotonic()-phase, 6)
             phase = time.monotonic()
-            report = validate(stage,expected,recent,owner=True,require_control=True,require_generated=True,require_owner_link=True)
+            report=validate_recent_from_full(stage,full_report,recent,require_generated=True)
             performance['final_validation_seconds'] = round(time.monotonic()-phase, 6)
             phase = time.monotonic()
             release_id = hashlib.sha256(json.dumps(report['hashes'],sort_keys=True).encode()).hexdigest()

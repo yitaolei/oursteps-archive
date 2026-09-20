@@ -51,6 +51,16 @@ class PublicTests(unittest.TestCase):
         meta.write_text(json.dumps(saved))
         with self.assertRaises(ValueError):pub.post_publish_check(self.root,result)
 
+    def test_recent_only_final_validation_reuses_full_hashes(self):
+        result=self.publish();dest=self.root/'public-site'/result['release']
+        full=pub.validate_saved(self.root,result['release'])
+        recent={'allowed':['1902000'],'cutoff':'2025-09-12','as_of':'2026-09-12','excluded_missing_dates':0}
+        report=pub.validate_recent_from_full(dest,full,recent,require_generated=True)
+        self.assertEqual(report['recent_articles'],1)
+        self.assertIn('recent-1y/1902000.html',report['hashes'])
+        (dest/'recent-1y/1902000.html').write_text('tampered')
+        with self.assertRaises(ValueError):pub.validate_recent_from_full(dest,full,recent,require_generated=True)
+
     def test_validation_fail_keeps_live(self):
         first=self.publish();p=self.root/'data/preview/1902000.html';p.write_text(p.read_text()+'session.json')
         with self.assertRaises(ValueError):self.publish()

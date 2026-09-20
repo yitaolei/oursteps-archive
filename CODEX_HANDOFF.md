@@ -156,3 +156,7 @@ A narrow optimization skips `Store.set_setting()` writes when the persisted stri
 Backfill previously spent about 71.8 s publishing and then another 37.7 s immediately revalidating current+previous with `public_healthcheck.py`. Because `publish()` already fully validates the old release, staged full release, and final full+recent release before switching live pointers, that immediate full rescan was redundant.
 
 `publish_public.py` now runs `post_publish_check()` after non-rollback publish. It verifies current/previous pointers, manifest presence, manifest digest/release identity, and published article/recent counts. `history_launcher.py` no longer chains `public_healthcheck.py`. The standalone full healthcheck is intentionally unchanged for independent integrity sweeps. Focused release tests and py_compile pass.
+
+## Final publish validation reuse — 2026-09-20
+
+`publish()` no longer re-hashes the entire top-level stage after `stage_recent()`. It retains the first full validation result, validates only `recent-1y/`, cross-checks shared recent files and search-index subset against the validated full release, and merges recent hashes into the deterministic manifest. This removes the second ~5.9k-article scan without weakening the pre-switch full validation or release identity. Focused public-release tests pass.

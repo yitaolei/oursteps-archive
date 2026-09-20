@@ -192,3 +192,11 @@ A changed production publish currently costs about 71.8 s and the immediately ch
 Historical Backfill no longer chains a second full healthcheck immediately after a successful publish. `publish_public.py` now performs a narrow `post_publish_check()` in the same process: verify the live `current` pointer equals the just-published release, `previous` exists, release metadata is present, the manifest digest matches the release identity, and article/recent counts match the publisher result. Any failure still makes publication return non-zero.
 
 The standalone `public_healthcheck.py` is unchanged and remains the independent full filesystem/checksum/DB/rollback integrity sweep for manual or separately scheduled health checks. This change removes duplicate immediate scanning; it does not weaken the publisher's pre-switch validation or deterministic release construction.
+
+## Phase C final publish validation reuse — 2026-09-20
+
+The changed-release path previously scanned the entire staged top-level release twice: once before `stage_recent()`, then again during final validation with the new `recent-1y/` scope. `stage_recent()` only creates/modifies the `recent-1y/` subtree, so the second top-level scan was redundant.
+
+The publisher now keeps the first full validation report/hashes, stages `recent-1y/`, validates only that new subtree, verifies every shared recent article/static hash against the already validated full hashes, verifies the recent search index is exactly the allowed subset of the validated full search index, then merges recent hashes into the final manifest. Deterministic release identity still includes both full and recent hashes.
+
+This preserves the pre-switch full-release integrity check and recent/full parity while avoiding a second read/hash pass over all top-level articles. Focused tests cover recent tamper detection, idempotency/rollback, and scope/rolling-hash behavior.
