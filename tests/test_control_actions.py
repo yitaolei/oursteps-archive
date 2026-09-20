@@ -38,6 +38,6 @@ class ControlActionQueueTests(unittest.TestCase):
 
     def test_runner_allowlist_is_independent(self):
         for action in WEB_ACTIONS: self.assertIsNotNone(action_spec(action))
-        self.assertIn('10', action_spec('historical_backfill')[0])
+        self.assertIn('20', action_spec('historical_backfill')[0])
         for action in ('rollback_public','authenticate','anything'):
             with self.assertRaises(ValueError): action_spec(action)

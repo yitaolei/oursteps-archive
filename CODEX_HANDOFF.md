@@ -144,7 +144,7 @@ Production measurement at 5,811 articles found healthcheck 66.536 s and unchange
 
 21:00 production is clean: 15/15 completed, 147.782 s crawl / 159.810 s worker total, zero network errors/timeouts/backoff, pacing split 9.275 s base + 2.810 s adaptive, 11.898 s incremental preview, zero pending TIDs. The changed release published 5,955 full / 3,835 recent articles in 42.802 s; post-publish check passed in 0.015 s; standalone full healthcheck passed in 39.269 s. Phase B is closed.
 
-Phase C diagnosis only: stored robots still says `Request-rate: 1/5`, `Crawl-delay: 5`, `Visit-time: 1400-2200` UTC, which is 00:00-08:00 AEST on 2026-09-20. Active `local.oursteps.historical-backfill` runs 07:00,09:00,...,21:00 with `--now --max-threads 15 --max-minutes 45`; only 07:00 naturally fits the current Visit-time. Do not alter request rate/concurrency. First Phase C scheduling task is robots-align the scheduled runs and remove scheduled `--now`; only after that should a dynamic work budget replace the fixed 15-thread cap. Recent clean 15-thread runs finish in about 105-189 s, so the 45-minute budget is currently mostly unused.
+Phase C diagnosis: stored robots still says `Request-rate: 1/5`, `Crawl-delay: 5`, `Visit-time: 1400-2200` UTC, which is 00:00-08:00 AEST on 2026-09-20. Historical backfill remains on the 07:00,09:00,...,21:00 cadence with the pre-existing `--now`; this checkpoint changes only the cap from 15 to 20. Do not alter request rate/concurrency. The next structural Phase C scheduling task is to robots-align scheduled runs and remove scheduled `--now`; only after that should a dynamic work budget replace the fixed cap.
 
 
 ## Adaptive pacing recovery — 2026-09-20
