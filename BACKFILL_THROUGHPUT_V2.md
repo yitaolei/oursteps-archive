@@ -208,3 +208,11 @@ Changed publishes previously spent about 18–19 s fully validating the current 
 Publish now reads the prior release metadata only for hardlink candidate selection. For a genuinely changed publish, it does not pre-scan every old article. After staging, the one full top-level validation must produce hashes exactly equal to `source_hashes`; therefore any stale/tampered old hardlink source fails closed before `current` can switch. A focused test tampers an old shared `style.css`, forces a changed publish, and confirms publication is refused by the staged-source parity check.
 
 The unchanged fast path remains conservative: when source hashes/recent policy exactly match the old manifest, `validate_saved(current)` still runs before returning `unchanged`. Rollback also retains full validation of current/previous. This optimization therefore targets changed historical publishes only and should remove roughly the prior `previous_validation_seconds` cost without weakening source parity.
+
+## Phase C save-page/status transaction coalescing — 2026-09-20
+
+A successful parsed page previously used three durable SQLite transactions: snapshot insert, parsed-page persistence, then `refresh_status()`. Snapshot remains intentionally separate so fetched raw evidence is durably recorded before parsing/persistence can fail.
+
+`save_page()` now performs its thread completeness/status refresh inside the same transaction as posts/pages/jobs persistence. The public `refresh_status()` entry point still owns a transaction when called independently. This reduces the normal successful-page path from three durable commits to two without changing `journal_mode=DELETE`, `synchronous=FULL`, lock/retry behavior, completeness rules, or snapshot durability.
+
+Focused persistence tests confirm one snapshot + one save/status transaction, unchanged final database/raw bytes, and preserved refresh diagnostics. For a roughly 25-page clean historical batch this should remove about another 25 FULL synchronous commits.

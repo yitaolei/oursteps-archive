@@ -229,3 +229,7 @@ Changed publish now validates the staged top-level release once. After `recent-1
 ### Changed publish skips old full prescan — 2026-09-20
 
 For changed releases, publisher no longer fully scans current before staging. Old manifest hashes are used only to choose hardlink candidates, and the staged top-level release must then hash exactly to the authoritative preview/source hashes before live switch. Unchanged publish and rollback still perform full saved-release validation. Preserve the staged-source equality check if hardlink logic changes.
+
+### Save-page/status transaction coalescing — 2026-09-20
+
+Successful page persistence now updates thread completion status inside the same SQLite transaction as posts/pages/jobs. Raw snapshot persistence remains a separate durable transaction. Independent `refresh_status()` calls still open their own transaction. This reduces fsync/commit frequency while preserving FULL synchronous durability and the existing completeness rules.

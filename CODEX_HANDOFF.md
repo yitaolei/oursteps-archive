@@ -164,3 +164,7 @@ Backfill previously spent about 71.8 s publishing and then another 37.7 s immedi
 ## Changed-publish old-release prescan removal — 2026-09-20
 
 Changed production publish previously paid ~18–19 s to `validate_saved(current)` before staging. It now loads old metadata only, reuses hardlinks by manifest match, then requires the fully validated staged top-level hashes to equal current authoritative `source_hashes`. Tampered/stale hardlinks therefore fail before pointer switch. The unchanged fast path still validates current fully; rollback still validates current/previous fully. Focused tamper/idempotency/fail-closed tests pass.
+
+## SQLite save/status commit reduction — 2026-09-20
+
+`save_page()` and its per-TID completeness refresh now share one transaction; snapshot remains separately durable. Normal successful page persistence therefore drops from 3 commits to 2 before considering no-op setting elimination. Focused persistence tests confirm 2 transactions/commits and identical resulting DB/raw content. Measure next production `persistence_commit_calls` and `persistence_sqlite_commit_seconds` before deeper transaction changes.

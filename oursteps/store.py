@@ -221,11 +221,11 @@ class Store:
                 self.db.execute('INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,?,?,?)',
                                 (thread_url(p['tid'], n), 'thread', p['tid'], n))
             self.db.execute('UPDATE jobs SET state="success",error=NULL WHERE url=?', (url,))
-        self.refresh_status([p['tid']])
+            self._refresh_status_uncommitted([p['tid']])
 
     @diag.section('refresh_status')
-    def refresh_status(self, tids=None):
-        """Same completeness rules; None explicitly retains full-archive maintenance."""
+    def _refresh_status_uncommitted(self, tids=None):
+        """Refresh status inside the caller's existing transaction."""
         sql='SELECT tid FROM threads';params=()
         if tids is not None:
             params=tuple(tids)
@@ -234,19 +234,23 @@ class Store:
             params=tuple(sorted(set(params)))
             if not params:return
             sql+=' WHERE tid IN ('+','.join('?' for _ in params)+')'
+        for row in self.db.execute(sql,params).fetchall():
+            diag.add('refresh_threads_visited')
+            tid = row['tid']
+            jobs = self.db.execute('SELECT state FROM jobs WHERE tid=?', (tid,)).fetchall()
+            pages = self.db.execute('SELECT * FROM pages WHERE tid=? AND result="parsed"', (tid,)).fetchall()
+            observed = {r['page'] for r in pages}
+            total = max([r['declared_pages'] or r['page'] for r in pages] or [1])
+            gaps = self.db.execute('SELECT count(*) FROM gaps g JOIN jobs j ON g.url=j.url WHERE j.tid=?', (tid,)).fetchone()[0]
+            complete = (jobs and all(j['state']=='success' for j in jobs) and
+                        observed == set(range(1, total+1)) and not gaps)
+            self.db.execute('UPDATE threads SET status=? WHERE tid=?',
+                            ('complete' if complete else ('partial' if pages else 'pending'), tid))
+
+    def refresh_status(self, tids=None):
+        """Same completeness rules; None explicitly retains full-archive maintenance."""
         with self.db:
-            for row in self.db.execute(sql,params).fetchall():
-                diag.add('refresh_threads_visited')
-                tid = row['tid']
-                jobs = self.db.execute('SELECT state FROM jobs WHERE tid=?', (tid,)).fetchall()
-                pages = self.db.execute('SELECT * FROM pages WHERE tid=? AND result="parsed"', (tid,)).fetchall()
-                observed = {r['page'] for r in pages}
-                total = max([r['declared_pages'] or r['page'] for r in pages] or [1])
-                gaps = self.db.execute('SELECT count(*) FROM gaps g JOIN jobs j ON g.url=j.url WHERE j.tid=?', (tid,)).fetchone()[0]
-                complete = (jobs and all(j['state']=='success' for j in jobs) and
-                            observed == set(range(1, total+1)) and not gaps)
-                self.db.execute('UPDATE threads SET status=? WHERE tid=?',
-                                ('complete' if complete else ('partial' if pages else 'pending'), tid))
+            return self._refresh_status_uncommitted(tids)
 
     def fail(self, job, error, retry=False, state=None, retry_after=0):
         import random
