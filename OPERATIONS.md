@@ -17,14 +17,14 @@ This is the operator-facing map for the production OurSteps Archive system. It r
 | --- | --- | --- | --- | --- |
 | Guide Discovery V2 | `local.oursteps.guide-discovery` | 03:15 daily | `scripts/history_launcher.py guide-discover --max-pages 25 --max-minutes 20` | Discovers candidate historical TIDs only; resumable and bounded. |
 | Incremental sync | `local.oursteps.incremental-sync` | 06:00, then every 2 hours through 22:00 | `scripts/update_now.py --now` | Authenticates, syncs current content, updates preview/publication using existing production workflow. |
-| Historical backfill | `local.oursteps.historical-backfill` | 07:00, then every 2 hours through 21:00 | `scripts/history_launcher.py backfill --best-effort --now --max-threads 15 --max-minutes 45` | Bounded historical backfill. Successful completion proceeds through preview, public publish, then public healthcheck. |
+| Historical backfill | `local.oursteps.historical-backfill` | 07:00, then every 2 hours through 21:00 | `scripts/history_launcher.py backfill --best-effort --now --max-threads 20 --max-minutes 45` | Bounded historical backfill. Successful completion proceeds through preview, public publish, then the publisher's post-publish pointer/identity/count check; the full public healthcheck remains an independent integrity sweep. |
 | Worker status snapshot | `local.oursteps.worker-status` | Every 30 seconds | `scripts/worker_status_snapshot.py` | Read-only NAS worker-lock probe. Writes only sanitized owner-Control-Center status; no PID, command, path, host or secret fields are published. |
 
 The schedules above describe the currently loaded Mac mini LaunchAgents. Do not silently replace them from an older installer template.
 
 ### Temporary historical-backfill acceleration — 2026-09-19
 
-Historical backfill is now running at **15 threads per scheduled run** with the existing 45-minute cap, two-hour cadence, request throttling, Busy/HTTP retry handling, authentication checks and worker/publish locks unchanged. This follows a stable 10-thread observation period and remains a throughput-only trial; do not increase request concurrency or weaken backoff. Review real completion time and Busy/500/timeout rates before considering any further increase.
+Historical backfill is now running at **20 threads per scheduled run** with the existing 45-minute cap, two-hour cadence, request throttling, Busy/HTTP retry handling, authentication checks and worker/publish locks unchanged. Six recent 15-thread production runs finished in roughly 117–232 seconds worker time, with the latest 21:00 run completing 15/15 with zero network errors/timeouts. Treat 20 as the next conservative throughput trial; do not increase request concurrency or weaken backoff. Review real completion time and Busy/500/timeout rates before considering any further increase.
 
 Each historical run also writes private throughput telemetry to `data/backfill-performance.json` and appends to `data/logs/backfill-performance.jsonl`. These files contain only counts/timings (no URLs, content, cookies or credentials) and are not published. Use them to compare crawl time, full preview-build time, network, throttle, parse and persistence costs before changing concurrency or pacing.
 
@@ -208,6 +208,12 @@ Backfill performance telemetry now splits waiting into `pacing_base_seconds`, `p
 Public publishing now emits timing-only `performance` fields for previous-release validation, preparation, full staging, full validation, recent-1y staging, final validation, finalize/switch, and total publish time. `public_healthcheck.py` emits `HEALTHCHECK_SECONDS`. These metrics must not be included in release manifests or release hashes. Use the first changed production release after this checkpoint to close Phase B before changing publish logic.
 
 Production Phase B measurement on 5,811 articles: healthcheck was 66.536 s before simplification; unchanged publish was 24.904 s (19.070 s previous/current validation + 5.832 s prepare/hash). Healthcheck was redundantly scanning current twice. It now uses `validate_saved(current)` once, explicitly compares current article TIDs and recent policy with NAS SQLite expectations, and still fully validates `previous`. Re-measurement: PASS in 37.741 s. Preserve this invariant; do not skip previous rollback validation without a separate design/review.
+
+### Phase B complete / Phase C schedule diagnosis — 2026-09-20 21:00
+
+Phase B is complete. The 21:00 Historical Backfill completed 15/15 in 147.782 s crawl / 159.810 s total, with zero network errors/timeouts/backoff, 11.898 s incremental preview, and zero preview pending. Its changed release published 5,955 articles / 3,835 recent-1y in 42.802 s; post-publish check passed in 0.015 s. A separate full public healthcheck passed in 39.269 s.
+
+Phase C schedule review: current stored robots policy is `Request-rate: 1/5`, `Crawl-delay: 5`, `Visit-time: 1400-2200` UTC. On 2026-09-20 AEST this is 00:00-08:00 Sydney time. The active historical LaunchAgent still runs 07:00-21:00 every two hours with `--now --max-threads 15 --max-minutes 45`; only 07:00 naturally falls in the robots window. Do not change request rate/concurrency. Before dynamic work-budget tuning, move the scheduled historical runs into the robots window and remove scheduled `--now`. The current 15-thread runs usually finish in roughly 2-3 minutes, so the 15-thread cap—not the 45-minute hard budget—is presently the main work limiter.
 
 
 ### Adaptive pacing recovery — 2026-09-20

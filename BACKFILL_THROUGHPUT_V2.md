@@ -166,6 +166,22 @@ A production read-only measurement on 5,811 current articles showed the pre-simp
 
 The low-risk Phase B simplification removes only that duplicate current scan. `validate_saved(current)` still performs the complete release/hash/manifest validation; the healthcheck then explicitly compares its article TIDs and recent policy with current NAS SQLite expectations, and still fully validates `previous` for rollback safety. Production re-measurement passed and reduced healthcheck time to 37.741 s, a 43% reduction, without weakening current/previous checksum, DB parity, recent-scope, privacy, or rollback invariants.
 
+## Phase B close-out — 2026-09-20 21:00
+
+Phase B is complete. The 21:00 Historical Backfill production run completed 15/15 threads with zero network errors/timeouts and zero global backoff. Crawl time was 147.782 s and total worker time 159.810 s. The pacing split was 9.275 s base + 2.810 s adaptive; incremental preview took 11.898 s and left zero pending TIDs.
+
+The associated changed public release published successfully at 5,955 articles / 3,835 recent-1y articles. Publish timing was 42.802 s total: 5.655 s prepare/source hashing, 5.894 s full staging, 11.969 s full validation, 9.745 s recent-1y staging, 7.482 s final validation, and 2.049 s finalize/switch. The narrow post-publish fail-closed check passed in 0.015 s. A separate full public healthcheck then passed for the same 5,955/3,835 release in 39.269 s. These results confirm there is no unresolved Phase B production anomaly.
+
+Phase B therefore closes with incremental preview and publish/release validation no longer dominating a healthy run. Further work belongs to Phase C; do not reopen request concurrency or rate changes without separate evidence.
+
+## Phase C schedule diagnosis — 2026-09-20
+
+The latest stored successful `robots.txt` snapshot still declares `Request-rate: 1/5`, `Crawl-delay: 5`, and `Visit-time: 1400-2200` UTC. On 2026-09-20 Sydney is AEST (UTC+10), so that Visit-time corresponds to 00:00-08:00 local time.
+
+The active `local.oursteps.historical-backfill` LaunchAgent currently runs at 07:00, 09:00, 11:00, 13:00, 15:00, 17:00, 19:00, and 21:00 local time and passes `--now --max-threads 15 --max-minutes 45`. Therefore only the 07:00 run naturally falls inside the current robots Visit-time; later runs depend on the explicit `--now` bypass. No schedule change is made in this checkpoint.
+
+The recent clean 15-thread runs complete in roughly 105-189 s, including a 147.782 s crawl at 21:00, so the fixed 15-thread cap is currently reached long before the 45-minute wall-clock budget. The Phase C design should first move scheduled historical work into the robots window and remove scheduled `--now`; only then should a dynamic work budget replace 15 threads as the main throughput control. Candidate behavior remains: preserve the 45-minute hard stop and shared pacing, expand work only after clean runs, and shrink quickly after 429/5xx/Busy/timeouts. This is diagnosis only, not an implementation or permission to increase request rate.
+
 
 ## Phase C adaptive recovery — 2026-09-20
 
@@ -200,6 +216,14 @@ The changed-release path previously scanned the entire staged top-level release 
 The publisher now keeps the first full validation report/hashes, stages `recent-1y/`, validates only that new subtree, verifies every shared recent article/static hash against the already validated full hashes, verifies the recent search index is exactly the allowed subset of the validated full search index, then merges recent hashes into the final manifest. Deterministic release identity still includes both full and recent hashes.
 
 This preserves the pre-switch full-release integrity check and recent/full parity while avoiding a second read/hash pass over all top-level articles. Focused tests cover recent tamper detection, idempotency/rollback, and scope/rolling-hash behavior.
+
+## Phase C conservative batch trial — 2026-09-20
+
+Six recent 15-thread production runs completed in approximately 117–232 seconds total worker time, all far below the unchanged 45-minute wall-clock cap. The latest 21:00 run completed 15/15 in 147.782 s crawl / 159.810 s worker time with 26 network fetches, zero network errors/timeouts, 9.275 s base pacing, 2.810 s adaptive pacing, zero backoff, and 11.898 s incremental preview. Publish completed in 42.802 s and the post-publish check passed in 0.015 s.
+
+The save-page/status transaction coalescing is also visible in production: a comparable 25-page clean run dropped from 76 commit calls / 24.465 s SQLite commit time before the change to 51 commit calls / 18.952 s after it.
+
+Given this headroom, the next trial raises only the per-run thread cap from 15 to **20**. The 45-minute cap, single-worker model, concurrency, robots/base request pacing, adaptive delay, retry/backoff, authentication, locks, NAS-native SQLite, deterministic release validation, and public/private scope isolation are unchanged. Treat 20 as an observation point; do not raise again until multiple production runs confirm health.
 
 ## Phase C changed-publish previous-release prescan removal — 2026-09-20
 

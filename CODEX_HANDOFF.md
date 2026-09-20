@@ -113,7 +113,7 @@ Routine status, logs, launchd checks, Git inspection, existing tests, healthchec
 The full/owner homepage now receives a publisher-injected `Control Center` button linking to `/control-center.html`. The recent/tester homepage explicitly strips this link, so the UI follows the same physical scope separation as the Control Center assets themselves. Do not move this to shared preview HTML or client-side role detection.
 ## Temporary throughput tuning — 2026-09-19
 
-The production historical-backfill LaunchAgent is now deliberately set to `--max-threads 15` after the 10-thread trial remained stable. The 45-minute cap, two-hour schedule, crawler throttle, retry/backoff, locks and publication chain are unchanged. Treat 15 as the current observation trial; do not raise it again or increase concurrency without reviewing real completion time, Busy/500/timeout rates and scheduler overlap first.
+The production historical-backfill LaunchAgent is now deliberately set to `--max-threads 20` after repeated 15-thread production runs remained far below the 45-minute cap. The 45-minute cap, two-hour schedule, crawler throttle, retry/backoff, locks and publication chain are unchanged. Treat 20 as the current observation trial; do not raise it again or increase concurrency without reviewing real completion time, Busy/500/timeout rates and scheduler overlap first.
 Private backfill throughput telemetry is recorded in `data/backfill-performance.json` plus append-only `data/logs/backfill-performance.jsonl`. It is counts/timings only and should be used to quantify requests-per-completed-thread plus crawl/preview-build/throttle/network/parse/persistence time before further tuning.
 ## Manual worker collision protection — 2026-09-18
 
@@ -121,7 +121,7 @@ Manual `Update`, `Authenticate`, Historical Backfill, and discovery `.command` l
 
 ## Live worker status + manual guard — 2026-09-18
 
-Owner Control Center now has a near-real-time Archive Worker panel. `local.oursteps.worker-status` runs every 30 seconds and writes only a sanitized status snapshot; `/control-action/worker-status` is owner/full-scope only, and stale snapshots (>90s) become `UNKNOWN`. The web payload must never expose PID, command lines, paths, hostnames, credentials or session details. Manual archive/auth `.command` entry points also guard against an active NAS worker before starting. Keep this independent from the long-running action runner so RUNNING status continues to refresh during 20–45 minute jobs. The Control Center Historical Backfill action is aligned with the production scheduler at `--max-threads 15 --max-minutes 45`.
+Owner Control Center now has a near-real-time Archive Worker panel. `local.oursteps.worker-status` runs every 30 seconds and writes only a sanitized status snapshot; `/control-action/worker-status` is owner/full-scope only, and stale snapshots (>90s) become `UNKNOWN`. The web payload must never expose PID, command lines, paths, hostnames, credentials or session details. Manual archive/auth `.command` entry points also guard against an active NAS worker before starting. Keep this independent from the long-running action runner so RUNNING status continues to refresh during 20–45 minute jobs. The Control Center Historical Backfill action is aligned with the production scheduler at `--max-threads 20 --max-minutes 45`.
 
 
 ## Historical Backfill Throughput V2 Phase A — 2026-09-19
@@ -139,6 +139,12 @@ Measured 09:00 baseline: 15/15 completed, 23 network fetches, 1.533 requests/com
 Phase B now instruments public-release timing only: previous validation, prepare/source hashing, full stage, full validation, recent-1y stage, final validation, finalize/switch, total publish, plus `HEALTHCHECK_SECONDS`. Release hashes/manifests are unchanged. Wait for the first changed production publish with these metrics; if publish/healthcheck are minor relative to crawl, mark Phase B DONE and move to Phase C. Do not optimize release validation or add concurrency before that evidence.
 
 Production measurement at 5,811 articles found healthcheck 66.536 s and unchanged publish 24.904 s, with 19.070 s in previous/current validation. Healthcheck was doing a redundant second full scan of current. The safe simplification keeps `validate_saved(current)`, explicit DB/current TID + recent-policy parity, and full `previous` rollback validation. Production recheck PASS: 37.741 s healthcheck (~43% faster). Do not weaken previous-release validation without separate evidence and review.
+
+## Phase B DONE / Phase C schedule diagnosis — 2026-09-20 21:00
+
+21:00 production is clean: 15/15 completed, 147.782 s crawl / 159.810 s worker total, zero network errors/timeouts/backoff, pacing split 9.275 s base + 2.810 s adaptive, 11.898 s incremental preview, zero pending TIDs. The changed release published 5,955 full / 3,835 recent articles in 42.802 s; post-publish check passed in 0.015 s; standalone full healthcheck passed in 39.269 s. Phase B is closed.
+
+Phase C diagnosis only: stored robots still says `Request-rate: 1/5`, `Crawl-delay: 5`, `Visit-time: 1400-2200` UTC, which is 00:00-08:00 AEST on 2026-09-20. Active `local.oursteps.historical-backfill` runs 07:00,09:00,...,21:00 with `--now --max-threads 15 --max-minutes 45`; only 07:00 naturally fits the current Visit-time. Do not alter request rate/concurrency. First Phase C scheduling task is robots-align the scheduled runs and remove scheduled `--now`; only after that should a dynamic work budget replace the fixed 15-thread cap. Recent clean 15-thread runs finish in about 105-189 s, so the 45-minute budget is currently mostly unused.
 
 
 ## Adaptive pacing recovery — 2026-09-20
