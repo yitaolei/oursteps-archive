@@ -144,3 +144,9 @@ Production measurement at 5,811 articles found healthcheck 66.536 s and unchange
 ## Adaptive pacing recovery — 2026-09-20
 
 07:00 completed 15/15 with no network errors/timeouts but still spent 57.886 s in adaptive pacing because yesterday's penalty decayed too slowly. Fetch success decay is now health-sensitive: HTTP 200 + `error_streak=0` uses 0.8 retention; recovery/non-200 keeps 0.9. This never bypasses robots/base pacing and does not alter error escalation, backoff, concurrency, or locks. Validate against the next clean production backfill before any further pacing change.
+
+## Throughput V2 persistence simplification — 2026-09-20
+
+Latest clean run: 15/15, 0 errors/timeouts, 219.676 s crawl, 49.608 s adaptive pacing, 27.627 s persistence, and 24.465 s SQLite commit time across 76 commit calls. Commit time is now the dominant persistence cost.
+
+A narrow optimization skips `Store.set_setting()` writes when the persisted string value is already identical. This primarily removes repeated successful-page `error_streak=0` transactions while preserving immediate durability for changed/missing settings. Focused tests cover the no-op commit behavior and adaptive-decay rule. Next measure production commit-count/time; only then consider deeper transaction coalescing. Publish + immediate healthcheck duplicate validation remains the other structural target.

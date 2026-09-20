@@ -123,8 +123,13 @@ class Store:
         return r[0] if r else default
 
     def set_setting(self, key, value):
+        value = str(value)
+        row = self.db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        if row is not None and row[0] == value:
+            return False
         with self.db:
-            self.db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', (key, str(value)))
+            self.db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', (key, value))
+        return True
 
     def seed(self, tids, provenance):
         tids = list(dict.fromkeys(int(x) for x in tids))

@@ -34,6 +34,19 @@ class DiagnosticTests(unittest.TestCase):
             s.snapshot(url,raw)
             self.assertEqual(s.performance.values['persistence_raw_html_writes'],1)
             self.assertIsNone(ACTIVE.get());s.db.close()
+    def test_set_setting_skips_durable_noop_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            s=Store(Path(d));p=Performance();token=ACTIVE.set(p)
+            try:
+                self.assertTrue(s.set_setting('error_streak',0))
+                commits=p.values.get('persistence_commits',0)
+                commit_calls=p.values.get('persistence_commit_calls',0)
+                self.assertFalse(s.set_setting('error_streak',0))
+                self.assertEqual(p.values.get('persistence_commits',0),commits)
+                self.assertEqual(p.values.get('persistence_commit_calls',0),commit_calls)
+                self.assertEqual(s.setting('error_streak'),'0')
+            finally:ACTIVE.reset(token);s.db.close()
+
     def test_cursor_commit_rollback_semantics(self):
         with tempfile.TemporaryDirectory() as d:
             s=Store(Path(d));p=Performance();token=ACTIVE.set(p)

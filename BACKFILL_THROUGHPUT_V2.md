@@ -174,3 +174,13 @@ The low-risk Phase B simplification removes only that duplicate current scan. `v
 The recovery rule is now bounded and health-sensitive: successful HTTP 200 responses with `error_streak=0` retain 80% of the previous adaptive delay; responses while recovering from an error streak, and non-200 responses, retain the previous 90% decay behavior. Existing robots/base pacing remains the hard floor, transient errors still double adaptive delay, pause/backoff rules are unchanged, and no concurrency is added.
 
 Focused tests cover healthy vs recovering decay, latency floor, and the 120 s cap.
+
+## Phase C persistence simplification — 2026-09-20
+
+Latest clean production after health-sensitive adaptive recovery completed 15/15 with zero network errors/timeouts. Adaptive pacing was 49.608 s versus the 07:00 baseline 57.886 s (-14.3%). Persistence was 27.627 s, of which SQLite commit time was 24.465 s across 76 commit calls (88.6% of measured persistence). SQL execution itself was only 0.147 s.
+
+Inspection showed a simple avoidable source of durable writes: successful pages repeatedly call `set_setting('error_streak', 0)` even when the persisted value is already `0`. On NAS SQLite with `journal_mode=DELETE` and `synchronous=FULL`, that no-op write still creates a transaction and durable commit.
+
+`Store.set_setting()` now skips the write entirely when the stored string value already equals the requested value. Missing keys are still created, changed values are still committed immediately, and all existing durable pacing/auth/backoff settings keep their semantics. This is intentionally narrower than transaction batching: no transaction boundaries are merged, no fsync policy is weakened, and no crawler concurrency/pacing behavior changes.
+
+For a typical clean 15-thread batch with roughly 25 successful page parses, this should remove about 25 unnecessary SQLite commits. Measure the next production run before attempting deeper transaction coalescing. The next structural candidate remains duplicate full-release validation across publish and the immediate healthcheck.

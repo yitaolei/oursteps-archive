@@ -213,3 +213,7 @@ Production Phase B measurement on 5,811 articles: healthcheck was 66.536 s befor
 ### Adaptive pacing recovery — 2026-09-20
 
 Clean historical runs no longer carry old transient-network adaptive penalties for as long. After an HTTP 200 response, if `error_streak=0`, the stored adaptive delay retains 80% of its previous value instead of 90%; while recovering from errors, and for non-200 responses, the conservative 90% rule remains. Robots/crawl-delay and the existing Fetcher base pace remain the hard minimum. 429/5xx/Busy escalation, pause/backoff, request concurrency, and worker locks are unchanged.
+
+### Throughput V2 persistence simplification — 2026-09-20
+
+`Store.set_setting()` now treats an unchanged setting value as a no-op. This is specifically important for repeated clean-page `error_streak=0` updates on NAS SQLite with FULL synchronous durability. Missing or changed values are still persisted immediately; robots/base pacing, auth state, adaptive delay, retry/backoff, locks, and SQLite durability mode are unchanged. Do not replace this with weaker SQLite sync settings or broad transaction batching without separate evidence.
