@@ -217,3 +217,7 @@ Clean historical runs no longer carry old transient-network adaptive penalties f
 ### Throughput V2 persistence simplification — 2026-09-20
 
 `Store.set_setting()` now treats an unchanged setting value as a no-op. This is specifically important for repeated clean-page `error_streak=0` updates on NAS SQLite with FULL synchronous durability. Missing or changed values are still persisted immediately; robots/base pacing, auth state, adaptive delay, retry/backoff, locks, and SQLite durability mode are unchanged. Do not replace this with weaker SQLite sync settings or broad transaction batching without separate evidence.
+
+### Historical post-publish fast check — 2026-09-20
+
+Historical Backfill now runs `publish_public.py` without immediately chaining `public_healthcheck.py`. The publisher itself performs a cheap post-switch integrity check of current/previous pointers, release metadata identity, and article/recent counts. Full `public_healthcheck.py` remains available and unchanged as an independent integrity sweep. Do not re-add an immediate full scan after every backfill unless production evidence shows the fast post-publish invariant is insufficient.

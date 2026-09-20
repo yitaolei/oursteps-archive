@@ -184,3 +184,11 @@ Inspection showed a simple avoidable source of durable writes: successful pages 
 `Store.set_setting()` now skips the write entirely when the stored string value already equals the requested value. Missing keys are still created, changed values are still committed immediately, and all existing durable pacing/auth/backoff settings keep their semantics. This is intentionally narrower than transaction batching: no transaction boundaries are merged, no fsync policy is weakened, and no crawler concurrency/pacing behavior changes.
 
 For a typical clean 15-thread batch with roughly 25 successful page parses, this should remove about 25 unnecessary SQLite commits. Measure the next production run before attempting deeper transaction coalescing. The next structural candidate remains duplicate full-release validation across publish and the immediate healthcheck.
+
+## Phase C publish/healthcheck deduplication — 2026-09-20
+
+A changed production publish currently costs about 71.8 s and the immediately chained full `public_healthcheck.py` costs another 37.7 s. The publisher has already fully validated the prior release, the staged full release, and the final full+recent release before atomically switching `current`; immediately rescanning all current/previous article files therefore duplicates work inside the same backfill pipeline.
+
+Historical Backfill no longer chains a second full healthcheck immediately after a successful publish. `publish_public.py` now performs a narrow `post_publish_check()` in the same process: verify the live `current` pointer equals the just-published release, `previous` exists, release metadata is present, the manifest digest matches the release identity, and article/recent counts match the publisher result. Any failure still makes publication return non-zero.
+
+The standalone `public_healthcheck.py` is unchanged and remains the independent full filesystem/checksum/DB/rollback integrity sweep for manual or separately scheduled health checks. This change removes duplicate immediate scanning; it does not weaken the publisher's pre-switch validation or deterministic release construction.

@@ -40,6 +40,17 @@ class PublicTests(unittest.TestCase):
         self.assertEqual((site/first['release']/'style.css').stat().st_ino,(site/second['release']/'style.css').stat().st_ino)
         self.publish(rollback=True);self.assertEqual(pub.pointer(site,'current'),first['release'])
         pub.validate_saved(self.root,first['release'])
+    def test_post_publish_check_uses_manifest_and_pointers_without_rescan(self):
+        result=self.publish()
+        check=pub.post_publish_check(self.root,result)
+        self.assertEqual(check['status'],'pass')
+        self.assertEqual(check['release'],result['release'])
+        meta=pub.metadata(self.root,result['release'])
+        saved=json.loads(meta.read_text())
+        saved['hashes']['index.html']='0'*64
+        meta.write_text(json.dumps(saved))
+        with self.assertRaises(ValueError):pub.post_publish_check(self.root,result)
+
     def test_validation_fail_keeps_live(self):
         first=self.publish();p=self.root/'data/preview/1902000.html';p.write_text(p.read_text()+'session.json')
         with self.assertRaises(ValueError):self.publish()

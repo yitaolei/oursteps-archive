@@ -273,6 +273,25 @@ def validate_saved(root, target):
     return actual
 
 
+def post_publish_check(root, result):
+    """Cheap immediate check after publish; full public_healthcheck remains independent."""
+    root = Path(root)
+    site = root/'public-site'
+    target = result.get('release')
+    require(target is not None, 'post-publish release missing')
+    require(pointer(site, 'current') == target, 'post-publish current pointer mismatch')
+    require(pointer(site, 'previous') is not None, 'post-publish previous pointer missing')
+    report = json.loads(metadata(root, target).read_text())
+    hashes = report.get('hashes')
+    require(isinstance(hashes, dict) and hashes, 'post-publish manifest missing hashes')
+    digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+    require(Path(target).name == digest, 'post-publish release identity mismatch')
+    require(report.get('articles') == result.get('articles'), 'post-publish article count mismatch')
+    if 'recent_articles' in result:
+        require(report.get('recent_articles') == result.get('recent_articles'), 'post-publish recent count mismatch')
+    return {'status':'pass','release':target,'articles':report.get('articles'),'recent_articles':report.get('recent_articles')}
+
+
 def publish(root=ROOT, expected=None, rollback=False, dates=None, today=None, preview_hashes=None):
     root = Path(root)
     started = time.monotonic()
