@@ -240,3 +240,14 @@ A successful parsed page previously used three durable SQLite transactions: snap
 `save_page()` now performs its thread completeness/status refresh inside the same transaction as posts/pages/jobs persistence. The public `refresh_status()` entry point still owns a transaction when called independently. This reduces the normal successful-page path from three durable commits to two without changing `journal_mode=DELETE`, `synchronous=FULL`, lock/retry behavior, completeness rules, or snapshot durability.
 
 Focused persistence tests confirm one snapshot + one save/status transaction, unchanged final database/raw bytes, and preserved refresh diagnostics. For a roughly 25-page clean historical batch this should remove about another 25 FULL synchronous commits.
+
+
+## TypeSafe read-only diagnostic pilot — 2026-09-21
+
+The project now includes the project-local `typesafe-ai` skill plus a deliberately non-authoritative diagnostic adapter. It reads only existing aggregate telemetry from `data/backfill-performance.json`, `data/inventory-report.json`, and `data/run-status.json`. It does not read article bodies, does not open SQLite, does not fetch OurSteps, and cannot mutate crawler, scheduler, publish, auth, pacing, retry/backoff, lock, or release state.
+
+The first pilot asks four narrow Noul judgments in one TypeSafe System One request: whether current evidence fits transient upstream noise, parser/layout trouble, auth/challenge trouble, and whether observation under existing safeguards is more appropriate than a behavior change. Only probabilities plus usage metadata are returned. Deterministic code and operator policy remain authoritative; the output is advisory telemetry only.
+
+TypeSafe is disabled by default. `scripts/with_typesafe_keychain.sh` reuses the existing Mac Keychain TypeSafe credential already used by the sibling 8449 project and exports it only to the child diagnostic process. No API key is stored in Git or NAS data. The remote automation safety layer prevented an agent-driven live Keychain-to-API smoke test, so production behavior was left unchanged. Focused unit tests validate disabled/no-op behavior and typed Noul parsing with a fake endpoint.
+
+Do not put TypeSafe in the fetch/parse/persist hot path. A later parser-fallback experiment is permitted only after this offline pilot demonstrates useful precision on representative ambiguous cases, and must remain fail-closed behind deterministic parser rules.

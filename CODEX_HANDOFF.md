@@ -174,3 +174,12 @@ Changed production publish previously paid ~18–19 s to `validate_saved(current
 ## SQLite save/status commit reduction — 2026-09-20
 
 `save_page()` and its per-TID completeness refresh now share one transaction; snapshot remains separately durable. Normal successful page persistence therefore drops from 3 commits to 2 before considering no-op setting elimination. Focused persistence tests confirm 2 transactions/commits and identical resulting DB/raw content. Measure next production `persistence_commit_calls` and `persistence_sqlite_commit_seconds` before deeper transaction changes.
+
+
+## TypeSafe diagnostic pilot — 2026-09-21
+
+A project-local `typesafe-ai` skill is installed and locked in `skills-lock.json`. The integration is intentionally outside the crawler hot path: `oursteps/typesafe_diagnostics.py` and `scripts/typesafe_diagnostic.py` read existing aggregate telemetry and optionally obtain four Noul probabilities from TypeSafe. The result is advisory only and cannot mutate archive state.
+
+Preserve this boundary. Do not add TypeSafe calls per fetched page, do not let model output override deterministic parser/auth/robots/backoff rules, and do not send article bodies or credentials. Use TypeSafe first for ambiguous offline diagnosis; only consider a deterministic-parser fallback after measured representative-case accuracy justifies it.
+
+The live API smoke test must be launched locally through `scripts/with_typesafe_keychain.sh`; the remote execution safety layer correctly blocks chaining a Keychain secret into an outbound API call. Unit tests use a fake endpoint and do not require secrets.

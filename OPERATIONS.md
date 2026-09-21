@@ -239,3 +239,16 @@ For changed releases, publisher no longer fully scans current before staging. Ol
 ### Save-page/status transaction coalescing — 2026-09-20
 
 Successful page persistence now updates thread completion status inside the same SQLite transaction as posts/pages/jobs. Raw snapshot persistence remains a separate durable transaction. Independent `refresh_status()` calls still open their own transaction. This reduces fsync/commit frequency while preserving FULL synchronous durability and the existing completeness rules.
+
+
+### Optional TypeSafe diagnostic pilot — 2026-09-21
+
+TypeSafe is available only as a private, read-only diagnostic helper. Normal Historical Backfill does not call it. The diagnostic script reads aggregate JSON telemetry only and sends no article body, username, cookie, session, SQLite data, or credential content to TypeSafe.
+
+Local usage:
+
+`scripts/with_typesafe_keychain.sh optional-run /opt/homebrew/bin/python3 scripts/typesafe_diagnostic.py --output data/typesafe-diagnostic.json`
+
+The output is advisory and `authoritative=false`; it must never directly change thread status, retry timing, batch size, pacing, auth, scheduler state, publication, or rollback. If TypeSafe is unavailable, normal crawler and deterministic diagnostics continue unchanged.
+
+The wrapper reuses the existing Mac Keychain service `grocery-promo-optimizer.typesafe` by default so the secret is not duplicated. Override `OURSTEPS_TYPESAFE_KEYCHAIN_SERVICE` only if a separate credential is intentionally created. Never add the API key to config files, LaunchAgents, logs, Git, Docker environment files, or NAS SQLite.
