@@ -36,7 +36,9 @@ class TypeSafeDiagnostics:
             "transient_upstream_noise": {
                 "type": "noul",
                 "instructions": (
-                    "Does the evidence most strongly fit a transient upstream/site "
+                    "Prioritize latest_backfill and recent_backfill_baseline. "
+                    "Treat historical_context as cumulative background only. "
+                    "Does the current evidence most strongly fit a transient upstream/site "
                     "condition such as Busy or timeout, rather than a local code defect?"
                 ),
                 "criteria": {
@@ -69,6 +71,7 @@ class TypeSafeDiagnostics:
             "observe_without_behavior_change": {
                 "type": "noul",
                 "instructions": (
+                    "Prioritize the current run and recent baseline, not cumulative history. "
                     "Given this diagnostic evidence only, is observation/retry under "
                     "the existing safeguards more appropriate than changing crawler behavior?"
                 ),

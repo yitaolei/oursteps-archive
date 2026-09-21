@@ -21,6 +21,34 @@ def load(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def recent_runs(path: Path, limit: int = 6) -> list[dict]:
+    rows = []
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return rows
+    for line in lines[-limit:]:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        p = row.get("performance") or {}
+        rows.append({
+            "max_threads": row.get("max_threads"),
+            "started_threads": row.get("started_threads"),
+            "completed_this_run": row.get("completed_this_run"),
+            "crawl_elapsed_seconds": row.get("crawl_elapsed_seconds"),
+            "elapsed_seconds": row.get("elapsed_seconds"),
+            "network_errors": p.get("network_errors"),
+            "network_timeouts": p.get("network_timeouts"),
+            "pacing_adaptive_seconds": p.get("pacing_adaptive_seconds"),
+            "backoff_seconds": p.get("backoff_seconds"),
+            "preview_pending_tids": row.get("preview_pending_tids"),
+            "requests_per_completed": row.get("requests_per_completed"),
+        })
+    return rows
+
+
 def build_state(root: Path) -> dict:
     perf = load(root / "data/backfill-performance.json")
     inv = load(root / "data/inventory-report.json")
@@ -58,9 +86,15 @@ def build_state(root: Path) -> dict:
             "failed_or_retry_pending": inv.get("failed_or_retry_pending"),
             "archive_scope": inv.get("archive_scope"),
         },
-        "reported_failure_state_counts": counts(failures, "state"),
-        "reported_failure_error_counts": counts(failures, "error"),
-        "reported_gap_reason_counts": counts(gaps, "reason"),
+        "recent_backfill_baseline": recent_runs(
+            root / "data/logs/backfill-performance.jsonl", limit=6
+        ),
+        "historical_context": {
+            "note": "cumulative background only; do not treat as current-run evidence",
+            "failure_state_counts": counts(failures, "state"),
+            "failure_error_counts": counts(failures, "error"),
+            "gap_reason_counts": counts(gaps, "reason"),
+        },
     }
 
 
@@ -69,9 +103,26 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     state = build_state(ROOT)
+    latest = state.get("latest_backfill") or {}
+    hold_reasons = []
+    if (latest.get("network_errors") or 0) > 0:
+        hold_reasons.append("current_network_errors")
+    if (latest.get("network_timeouts") or 0) > 0:
+        hold_reasons.append("current_network_timeouts")
+    if (latest.get("preview_pending_tids") or 0) > 0:
+        hold_reasons.append("current_preview_pending")
+    started = latest.get("started_threads")
+    completed = latest.get("completed_this_run")
+    if isinstance(started, int) and isinstance(completed, int) and completed < started:
+        hold_reasons.append("current_incomplete_batch")
+
     result = {
         "authoritative": False,
         "may_change_crawler_behavior": False,
+        "deterministic_policy": {
+            "hold_tuning": bool(hold_reasons),
+            "reasons": hold_reasons,
+        },
         "state": state,
         "typesafe": TypeSafeDiagnostics().evaluate(state),
     }

@@ -252,3 +252,10 @@ Local usage:
 The output is advisory and `authoritative=false`; it must never directly change thread status, retry timing, batch size, pacing, auth, scheduler state, publication, or rollback. If TypeSafe is unavailable, normal crawler and deterministic diagnostics continue unchanged.
 
 The wrapper reuses the existing Mac Keychain service `grocery-promo-optimizer.typesafe` by default so the secret is not duplicated. Override `OURSTEPS_TYPESAFE_KEYCHAIN_SERVICE` only if a separate credential is intentionally created. Never add the API key to config files, LaunchAgents, logs, Git, Docker environment files, or NAS SQLite.
+
+
+### TypeSafe diagnostic V1.1
+
+The diagnostic state now contains three distinct evidence scopes: `latest_backfill`, a six-run `recent_backfill_baseline`, and `historical_context`. Historical failure/gap counts are cumulative background and must not be interpreted as current-run failures.
+
+The script also emits `deterministic_policy.hold_tuning`. Current network errors/timeouts, preview-pending TIDs, or fewer completed than started threads force a hold regardless of TypeSafe probabilities. Model output may accelerate diagnosis; it cannot override this gate or change production behavior.

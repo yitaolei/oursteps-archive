@@ -183,3 +183,8 @@ A project-local `typesafe-ai` skill is installed and locked in `skills-lock.json
 Preserve this boundary. Do not add TypeSafe calls per fetched page, do not let model output override deterministic parser/auth/robots/backoff rules, and do not send article bodies or credentials. Use TypeSafe first for ambiguous offline diagnosis; only consider a deterministic-parser fallback after measured representative-case accuracy justifies it.
 
 The live API smoke test must be launched locally through `scripts/with_typesafe_keychain.sh`; the remote execution safety layer correctly blocks chaining a Keychain secret into an outbound API call. Unit tests use a fake endpoint and do not require secrets.
+
+
+### TypeSafe V1.1 evidence
+
+Live smoke test confirmed the API integration works. V1.1 adds recent-run baseline context and separates cumulative historical failures from current evidence. It also adds a deterministic `hold_tuning` gate for current errors/timeouts, preview pending, or incomplete batches. Keep this gate authoritative over TypeSafe output.

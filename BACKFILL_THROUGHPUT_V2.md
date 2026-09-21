@@ -251,3 +251,10 @@ The first pilot asks four narrow Noul judgments in one TypeSafe System One reque
 TypeSafe is disabled by default. `scripts/with_typesafe_keychain.sh` reuses the existing Mac Keychain TypeSafe credential already used by the sibling 8449 project and exports it only to the child diagnostic process. No API key is stored in Git or NAS data. The remote automation safety layer prevented an agent-driven live Keychain-to-API smoke test, so production behavior was left unchanged. Focused unit tests validate disabled/no-op behavior and typed Noul parsing with a fake endpoint.
 
 Do not put TypeSafe in the fetch/parse/persist hot path. A later parser-fallback experiment is permitted only after this offline pilot demonstrates useful precision on representative ambiguous cases, and must remain fail-closed behind deterministic parser rules.
+
+
+### TypeSafe pilot V1.1 — 2026-09-21
+
+The first live smoke test succeeded with Jev 1.13.0. On a 20-thread run with 19 completed, 2 network errors, 120.755 s adaptive pacing and 1 preview-pending TID, TypeSafe returned transient-upstream 0.80, parser/layout 0.39, auth/challenge 0.10 and observe-without-change 0.57. This broadly matched the manual diagnosis, but the V1 input mixed cumulative historical Busy/timeout counts with current-run evidence.
+
+V1.1 therefore separates current run, recent six-run baseline and cumulative historical context. Historical counts are explicitly labelled background-only. A deterministic policy gate now overrides advisory model output: any current network error/timeout, preview pending item, or incomplete batch sets `hold_tuning=true`. TypeSafe remains diagnostic only and cannot authorize crawler changes.
