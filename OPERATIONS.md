@@ -259,3 +259,10 @@ The wrapper reuses the existing Mac Keychain service `grocery-promo-optimizer.ty
 The diagnostic state now contains three distinct evidence scopes: `latest_backfill`, a six-run `recent_backfill_baseline`, and `historical_context`. Historical failure/gap counts are cumulative background and must not be interpreted as current-run failures.
 
 The script also emits `deterministic_policy.hold_tuning`. Current network errors/timeouts, preview-pending TIDs, or fewer completed than started threads force a hold regardless of TypeSafe probabilities. Model output may accelerate diagnosis; it cannot override this gate or change production behavior.
+
+
+### 20-thread production observation — 2026-09-21 13:00
+
+The 11:00 scheduled Historical Backfill was clean at 20/20 with zero network errors/timeouts and zero preview pending. The 13:00 run completed 19/20 with 2 network errors, 120.755 s adaptive pacing and 1 preview-pending TID; publish and post-publish checks still passed.
+
+Do not raise the 20-thread cap. Current evidence requires continued observation. The deterministic TypeSafe diagnostic policy should report `hold_tuning=true` whenever the current run has network errors/timeouts, preview pending, or incomplete completion.

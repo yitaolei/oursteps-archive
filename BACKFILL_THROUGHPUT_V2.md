@@ -258,3 +258,12 @@ Do not put TypeSafe in the fetch/parse/persist hot path. A later parser-fallback
 The first live smoke test succeeded with Jev 1.13.0. On a 20-thread run with 19 completed, 2 network errors, 120.755 s adaptive pacing and 1 preview-pending TID, TypeSafe returned transient-upstream 0.80, parser/layout 0.39, auth/challenge 0.10 and observe-without-change 0.57. This broadly matched the manual diagnosis, but the V1 input mixed cumulative historical Busy/timeout counts with current-run evidence.
 
 V1.1 therefore separates current run, recent six-run baseline and cumulative historical context. Historical counts are explicitly labelled background-only. A deterministic policy gate now overrides advisory model output: any current network error/timeout, preview pending item, or incomplete batch sets `hold_tuning=true`. TypeSafe remains diagnostic only and cannot authorize crawler changes.
+
+
+## 20-thread observation — 2026-09-21 13:00
+
+The 11:00 run was the first clean 20-thread production sample: 20/20 completed, zero network errors/timeouts, 287.117 s crawl / 301.095 s worker total, essentially zero adaptive pacing, 13.772 s incremental preview, and zero preview pending.
+
+The 13:00 run regressed to 19/20 with 2 network errors, 342.595 s crawl / 355.340 s worker total, 120.755 s adaptive pacing, zero timeout/backoff, 12.612 s incremental preview, and 1 preview-pending TID. Publish still completed successfully at 6,046 full / 3,924 recent articles in 43.960 s and the post-publish check passed in 0.015 s.
+
+Current 20-thread sequence is therefore 19/20, 18/20, 20/20, 19/20. Evidence is not yet stable enough for any further batch increase. Keep the cap at 20 and hold tuning while current-run errors or preview-pending state are present. Continue observation under the existing safety boundaries.

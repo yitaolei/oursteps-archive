@@ -188,3 +188,8 @@ The live API smoke test must be launched locally through `scripts/with_typesafe_
 ### TypeSafe V1.1 evidence
 
 Live smoke test confirmed the API integration works. V1.1 adds recent-run baseline context and separates cumulative historical failures from current evidence. It also adds a deterministic `hold_tuning` gate for current errors/timeouts, preview pending, or incomplete batches. Keep this gate authoritative over TypeSafe output.
+
+
+## 20-thread production status — 2026-09-21 13:00
+
+Recent 20-thread results are 19/20, 18/20, 20/20, 19/20. The 13:00 run had 2 network errors, 120.755 s adaptive pacing and 1 preview-pending TID, although publish remained healthy at 6,046 full / 3,924 recent and the post-publish check passed. Hold all further throughput tuning; keep 20 as the observation cap and diagnose only if the next runs remain non-clean.
