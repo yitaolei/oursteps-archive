@@ -266,3 +266,14 @@ The script also emits `deterministic_policy.hold_tuning`. Current network errors
 The 11:00 scheduled Historical Backfill was clean at 20/20 with zero network errors/timeouts and zero preview pending. The 13:00 run completed 19/20 with 2 network errors, 120.755 s adaptive pacing and 1 preview-pending TID; publish and post-publish checks still passed.
 
 Do not raise the 20-thread cap. Current evidence requires continued observation. The deterministic TypeSafe diagnostic policy should report `hold_tuning=true` whenever the current run has network errors/timeouts, preview pending, or incomplete completion.
+
+
+## SMB mount recovery and LaunchAgent hardening — 2026-09-23
+
+A NAS restart/network interruption exposed a macOS mount-point weakness: the Synology `Newhome` share disappeared from `/Volumes`, briefly reappeared as `/Volumes/Newhome-1`, and all OurSteps LaunchAgents that had hard-coded `/Volumes/Newhome/docker/oursteps-archive` failed with `EX_CONFIG` / spawn errors. The 8448 Control Center consequently showed stale `Archive Worker = UNKNOWN` and a queued Incremental Sync could not complete.
+
+Production LaunchAgents now execute a stable local bootstrap copied to `~/Library/Application Support/OurSteps/launch_project.sh`. The bootstrap discovers the project under `/Volumes/Newhome` or numbered macOS variants such as `Newhome-1` / `Newhome-2`. If no matching mount exists, one process acquires a short local remount lock and asks macOS to mount `smb://DS923SOPAC.local/Newhome` using the existing Keychain/Finder credential; other launchers wait briefly and rescan. No SMB password is stored in the repository, plist, logs, or bootstrap.
+
+The canonical installer is now `scripts/install_mac_launchagents.py --install`. It installs the current five production agents and copies the bootstrap to the stable local path. The installer preserves the current schedules and production arguments exactly. Old `install_control_actions.py` and `install_nightly.py` are compatibility wrappers around the canonical installer so they cannot recreate the former hard-coded mount path or stale 00:15 schedule.
+
+Recovery rule: when the NAS is intentionally rebooted, do not rewrite plist paths to a temporary `Newhome-N` mount. Allow the bootstrap to remount/discover the share, then verify worker-status freshness, queue state and the relevant job result. A job claimed during a NAS interruption must not be falsely marked successful; preserve it as failed and enqueue a fresh retry through the normal allowlisted queue.

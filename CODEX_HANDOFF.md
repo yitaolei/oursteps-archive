@@ -193,3 +193,12 @@ Live smoke test confirmed the API integration works. V1.1 adds recent-run baseli
 ## 20-thread production status — 2026-09-21 13:00
 
 Recent 20-thread results are 19/20, 18/20, 20/20, 19/20. The 13:00 run had 2 network errors, 120.755 s adaptive pacing and 1 preview-pending TID, although publish remained healthy at 6,046 full / 3,924 recent and the post-publish check passed. Hold all further throughput tuning; keep 20 as the observation cap and diagnose only if the next runs remain non-clean.
+
+
+## Mount-resilient Mac LaunchAgents — 2026-09-23
+
+All five production OurSteps LaunchAgents now call a stable local bootstrap at `~/Library/Application Support/OurSteps/launch_project.sh` instead of embedding the NAS SMB mount path. The source template is `scripts/mac_launch_project.sh`; `scripts/install_mac_launchagents.py --install` copies it locally and installs worker-status, control-actions, incremental-sync, Guide Discovery and Historical Backfill with the current production schedules.
+
+The bootstrap accepts `/Volumes/Newhome` and macOS-numbered variants (`Newhome-1`, etc.). If the share is absent, it makes one bounded Keychain-backed macOS remount attempt for `smb://DS923SOPAC.local/Newhome` under a local remount lock, then rescans. Do not put SMB credentials in code or plist files and do not revert LaunchAgents to a NAS-hosted executable path.
+
+Incident evidence: a DS923 restart caused the SMB mount to disappear and briefly use `Newhome-1`; old hard-coded LaunchAgents returned `EX_CONFIG`, worker-status became stale/UNKNOWN, and one Incremental Sync was claimed but interrupted. That job was retained as failed and a normal queued retry later succeeded. Preserve this fail-honest behavior.
