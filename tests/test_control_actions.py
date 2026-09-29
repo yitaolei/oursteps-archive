@@ -15,7 +15,7 @@ class ControlActionQueueTests(unittest.TestCase):
         with self.assertRaises(ValueError): request(self.root,'rollback_public')
         first,created=request(self.root,'incremental_sync');self.assertTrue(created)
         same,created=request(self.root,'incremental_sync');self.assertFalse(created);self.assertEqual(first['id'],same['id'])
-        job=claim(self.root);self.assertEqual(job['state'],'running')
+        job=claim(self.root);self.assertEqual(job['state'],'running');self.assertEqual(job['message'],'Running on Mac Studio')
         self.assertIsNone(claim(self.root))
         done=finish(self.root,job['id'],True,' ok\nsecret-free ');self.assertEqual(done['state'],'succeeded');self.assertEqual(done['message'],'ok secret-free')
         again,created=request(self.root,'incremental_sync');self.assertTrue(created);self.assertNotEqual(again['id'],first['id'])

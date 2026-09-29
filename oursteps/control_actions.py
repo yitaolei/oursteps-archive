@@ -81,7 +81,7 @@ def claim(root):
         fcntl.flock(handle, fcntl.LOCK_EX)
         for job in _jobs(root):
             if job.get('action') in WEB_ACTIONS and job.get('state') == 'pending':
-                job['state']='running';job['updated_at']=int(time.time());job['message']='Running on Mac mini'
+                job['state']='running';job['updated_at']=int(time.time());job['message']='Running on Mac Studio'
                 _atomic(q/(job['id']+'.json'), job)
                 return job
     return None

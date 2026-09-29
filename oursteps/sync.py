@@ -106,7 +106,8 @@ def sync(store,day=None,now=False):
                 else:
                     first_url=thread_url(tid)
                     first_snap=store.latest(first_url)
-                    if first_snap is None or first_snap['status']!=200:
+                    if (first_snap is None or first_snap['status']!=200 or
+                            b'</html>' not in store.raw(first_snap).lower()):
                         first_snap=fetch.get(first_url)
                     try:
                         first=parse_thread(store.raw(first_snap),first_url)

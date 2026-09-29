@@ -36,6 +36,10 @@ def main():
                 if run.returncode==0: run=remote('scripts/public_healthcheck.py',timeout=timeout)
             else:
                 run=subprocess.run(spec,capture_output=True,text=True,timeout=timeout)
+            if run.stdout:
+                print('[%s %s] stdout\n%s' % (action,job['id'],run.stdout),end='' if run.stdout.endswith('\n') else '\n',flush=True)
+            if run.stderr:
+                print('[%s %s] stderr\n%s' % (action,job['id'],run.stderr),end='' if run.stderr.endswith('\n') else '\n',file=sys.stderr,flush=True)
             success=run.returncode==0;message='Completed successfully' if success else 'Action failed; inspect operator logs'
         except subprocess.TimeoutExpired:
             success=False;message='Action timed out; inspect operator status before retrying'
