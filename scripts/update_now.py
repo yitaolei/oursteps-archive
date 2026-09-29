@@ -53,18 +53,36 @@ if a.nightly:
     today=dt.date.fromisoformat(sydney_today())
     dates=[(today-dt.timedelta(days=1)).isoformat(),today.isoformat()]
 code=0
-for day in dates:
-    command=remote_python('archive.py', 'sync-today')
+MAX_BROWSER_BATCHES=2
+log=ROOT/'data/logs/update-launcher.log';log.parent.mkdir(exist_ok=True)
+
+def remote_sync(day):
+    command=remote_python('archive.py','sync-today')
     if day:command+=' --date '+day
     if a.now:command+=' --now'
-    result=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],command],capture_output=True,text=True)
-    code=max(code,result.returncode)
-    log=ROOT/'data/logs/update-launcher.log';log.parent.mkdir(exist_ok=True)
-    with log.open('a') as f:f.write(result.stderr)
+    return subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],command],capture_output=True,text=True)
+
+def summary_from(result):
     try:
-        summary=json.loads(result.stdout.strip().splitlines()[-1])
+        return json.loads(result.stdout.strip().splitlines()[-1])
     except (ValueError,IndexError):
-        print('Sync could not complete. Check NAS connection and data/logs/update-launcher.log.');break
+        return None
+
+def remote_candidates(seed):
+    host,_=deployment()
+    run=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
+        remote_python('scripts/browser_fallback_candidates.py')],capture_output=True,text=True,timeout=30)
+    if run.returncode:
+        return [seed]
+    try:
+        urls=json.loads(run.stdout.strip().splitlines()[-1]).get('urls',[])
+    except (ValueError,IndexError,AttributeError):
+        urls=[]
+    urls=[u for u in urls if isinstance(u,str)]
+    if seed not in urls: urls.insert(0,seed)
+    return list(dict.fromkeys(urls))[:20]
+
+def show(summary):
     print('OurSteps Sync · '+summary['date'])
     for label,key in [('Discovered today','discovered_today'),('Already archived','already_archived'),('Newly archived','newly_archived'),('Updated metadata','updated_metadata'),('Total archive','total_archive')]:
         print('%s: %s'%(label,summary.get(key,0)))
@@ -73,7 +91,44 @@ for day in dates:
     if summary['failures']: print(json.dumps(summary['failures'],ensure_ascii=False))
     elif summary['newly_archived']==0:print('No new threads found.')
     else:print('Done.')
-    if result.returncode:break
+
+for day in dates:
+    attempted=set()
+    result=None
+    summary=None
+    for _ in range(MAX_BROWSER_BATCHES+1):
+        result=remote_sync(day)
+        with log.open('a') as f:f.write(result.stderr)
+        summary=summary_from(result)
+        if summary is None:
+            print('Sync could not complete. Check NAS connection and data/logs/update-launcher.log.')
+            break
+        if result.returncode==0:
+            break
+        fallback=summary.get('browser_fallback_url')
+        if not fallback or fallback in attempted or len(attempted)>=20:
+            break
+        urls=[u for u in remote_candidates(fallback) if u not in attempted]
+        if not urls:
+            break
+        attempted.update(urls)
+        print('Browser fallback: resolving %d thread(s) in one Chrome session.'%len(urls),flush=True)
+        fb=subprocess.run([str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],
+                          capture_output=True,text=True,timeout=600)
+        with log.open('a') as f:
+            f.write(fb.stdout)
+            f.write(fb.stderr)
+        if fb.returncode:
+            print('Browser fallback failed; see data/logs/update-launcher.log.')
+            break
+        print('Browser fallback: batch resolved; retrying incremental sync.',flush=True)
+    if summary is None or result is None:
+        code=max(code,2)
+        break
+    show(summary)
+    code=max(code,result.returncode)
+    if result.returncode:
+        break
     if summary['status']=='success' and not summary['failures']:
         publish=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],
             remote_python('scripts/publish_public.py')],capture_output=True,text=True)

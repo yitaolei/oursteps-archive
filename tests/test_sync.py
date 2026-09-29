@@ -96,6 +96,44 @@ class DailyTests(unittest.TestCase):
                     self.assertEqual(tuple(store.db.execute('SELECT * FROM publication_times WHERE tid=?',(tid,)).fetchone()),publication)
                     self.assertEqual(tuple(store.db.execute('SELECT * FROM listing_metrics WHERE tid=?',(tid,)).fetchone()),metrics)
 
+
+    def test_js_challenge_returns_browser_fallback_url(self):
+        from oursteps.auth_verify import VerificationIssue
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(temp);self.addCleanup(store.db.close)
+            tid=1902001
+            class Fake:
+                mode='authenticated_private'
+                def __init__(self,*a,**k):pass
+                def get(self,url):
+                    if url==directory_url():
+                        return store.snapshot(url,listing([tid]),mode=self.mode)
+                    raise VerificationIssue('retry_later','incomplete_html',True)
+                def wait_window(self):pass
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
+                result=sync(store,now=True)
+            self.assertEqual(result['status'],'retry_later',result)
+            self.assertEqual(result['failures'],['incomplete_html'])
+            self.assertEqual(result['browser_fallback_url'],thread_url(tid))
+
+    def test_incomplete_cached_thread_is_refetched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(temp);self.addCleanup(store.db.close)
+            tid=1902001;url=thread_url(tid);calls=[]
+            store.snapshot(url,b'<script>challenge()</script>',mode='authenticated_private')
+            pages={directory_url():listing([tid]),url:article(tid,'2026-9-8',201)}
+            class Fake:
+                mode='authenticated_private'
+                def __init__(self,*a,**k):pass
+                def get(self,target):
+                    calls.append(target)
+                    return store.snapshot(target,pages[target],mode=self.mode)
+                def wait_window(self):pass
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
+                result=sync(store,now=True)
+            self.assertEqual(result['status'],'success',result)
+            self.assertIn(url,calls)
+
     def test_timezone_crosses_sydney_midnight(self):
         from oursteps.sync import publication_time
         self.assertEqual(publication_time('发表于 2026-9-7 16:30',b'<div id="ft">GMT +0</div>'),'2026-09-08 02:30')

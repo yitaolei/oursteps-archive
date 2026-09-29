@@ -54,6 +54,7 @@ def sync(store,day=None,now=False):
     if day not in (today,(dt.date.fromisoformat(today)-dt.timedelta(days=1)).isoformat(),'2026-09-08') and not store.db.execute('SELECT 1 FROM discovery_state WHERE day=?',(day,)).fetchone():
         raise ValueError('historical_backfill_not_authorized')
     result=dict(date=day,status='success',discovered_today=0,already_archived=0,newly_archived=0,updated_metadata=0,failures=[])
+    browser_fallback_url=None
     initially={r[0] for r in store.db.execute("SELECT tid FROM threads WHERE status='complete'")}
     existing_state=store.db.execute('SELECT * FROM discovery_state WHERE day=?',(day,)).fetchone()
     if existing_state and existing_state['state']=='auth_required':
@@ -105,6 +106,7 @@ def sync(store,day=None,now=False):
                     row['day']=row['published'][:10]
                 else:
                     first_url=thread_url(tid)
+                    browser_fallback_url=first_url
                     first_snap=store.latest(first_url)
                     if (first_snap is None or first_snap['status']!=200 or
                             b'</html>' not in store.raw(first_snap).lower()):
@@ -118,6 +120,7 @@ def sync(store,day=None,now=False):
                         if first_snap['fetched_at']>=verified: raise
                         first_snap=fetch.get(first_url)
                         first=parse_thread(store.raw(first_snap),first_url)
+                    browser_fallback_url=None
                     owner=next((p for p in first['posts'] if p['floor']=='1#'),None)
                     if owner is None: raise ParseError('first_author_floor_missing')
                     row['published']=publication_time(owner['posted_at_raw'],store.raw(first_snap),display_offset)
@@ -153,6 +156,10 @@ def sync(store,day=None,now=False):
         if status not in ('complete','success'): result['status']=status
     except VerificationIssue as e:
         result.update(status=e.category,failures=[e.reason])
+        if (browser_fallback_url and
+                ((e.category=='retry_later' and e.reason=='incomplete_html') or
+                 (e.category=='unexpected_layout' and e.reason=='identity_not_confirmed_no_logout_evidence'))):
+            result['browser_fallback_url']=browser_fallback_url
     except OutsideWindow:
         result.update(status='waiting_window',failures=['Outside permitted UTC window'])
     except (Busy,URLError,TimeoutError,ConnectionError,http.client.HTTPException) as e:
@@ -170,6 +177,8 @@ def sync(store,day=None,now=False):
     except (ValueError,NotFound) as e:
         with store.db: store.db.execute('INSERT OR REPLACE INTO discovery_state VALUES(?,?,?,0,0,?)',(day,url,'parse_error',str(e)))
         result.update(status='parse_error',failures=[str(e)])
+        if browser_fallback_url and str(e)=='missing_title_or_breadcrumb':
+            result['browser_fallback_url']=browser_fallback_url
     result['discovery_complete']=discovery_complete
     return finish(store,result,day,initially)
 
