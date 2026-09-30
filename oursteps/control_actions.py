@@ -15,6 +15,7 @@ WEB_ACTIONS = {
 }
 FINAL = {'succeeded', 'failed'}
 ACTIVE = {'pending', 'running'}
+RUNNING_STALE_SECONDS = 2*60*60
 
 
 def queue_dir(root):
@@ -48,6 +49,17 @@ def _jobs(root):
     return sorted(result, key=lambda x: (x.get('created_at',0), x.get('id','')))
 
 
+def _expire_stale_running(root, now=None):
+    now=int(time.time() if now is None else now)
+    for job in _jobs(root):
+        if job.get('state')!='running': continue
+        updated=job.get('updated_at',job.get('created_at',0))
+        if not isinstance(updated,int) or now-updated<=RUNNING_STALE_SECONDS: continue
+        job.update(state='failed',updated_at=now,
+                   message='Stale running action expired; safe to retry')
+        _atomic(queue_dir(root)/(job['id']+'.json'),job)
+
+
 def status(root, limit=20):
     safe=[]
     for job in _jobs(root)[-limit:]:
@@ -64,6 +76,7 @@ def request(root, action):
         st=os.fstat(handle.fileno())
         if st.st_uid == os.geteuid(): os.fchmod(handle.fileno(), 0o666)
         fcntl.flock(handle, fcntl.LOCK_EX)
+        _expire_stale_running(root)
         for job in _jobs(root):
             if job.get('action') == action and job.get('state') in ACTIVE:
                 return job, False
@@ -79,6 +92,7 @@ def claim(root):
         st=os.fstat(handle.fileno())
         if st.st_uid == os.geteuid(): os.fchmod(handle.fileno(), 0o666)
         fcntl.flock(handle, fcntl.LOCK_EX)
+        _expire_stale_running(root)
         for job in _jobs(root):
             if job.get('action') in WEB_ACTIONS and job.get('state') == 'pending':
                 job['state']='running';job['updated_at']=int(time.time());job['message']='Running on Mac Studio'
@@ -90,13 +104,21 @@ def claim(root):
 def finish(root, ident, success, message):
     if not isinstance(ident,str) or len(ident)!=32 or any(c not in '0123456789abcdef' for c in ident):
         raise ValueError('invalid job id')
-    path=queue_dir(root)/(ident+'.json')
-    data=json.loads(path.read_text())
-    if data.get('action') not in WEB_ACTIONS or data.get('state') != 'running': raise ValueError('job not running')
-    text=' '.join(str(message).split())[:240]
-    data.update(state='succeeded' if success else 'failed', updated_at=int(time.time()), message=text or ('Completed' if success else 'Failed'))
-    _atomic(path,data)
-    return data
+    q=queue_dir(root);path=q/(ident+'.json');desired='succeeded' if success else 'failed'
+    with (q/'queue.lock').open('a') as handle:
+        st=os.fstat(handle.fileno())
+        if st.st_uid == os.geteuid(): os.fchmod(handle.fileno(),0o666)
+        fcntl.flock(handle,fcntl.LOCK_EX)
+        data=json.loads(path.read_text())
+        if data.get('action') not in WEB_ACTIONS: raise ValueError('unsupported job action')
+        if data.get('state') in FINAL:
+            if data.get('state')==desired: return data
+            raise ValueError('conflicting final state')
+        if data.get('state')!='running': raise ValueError('job not running')
+        text=' '.join(str(message).split())[:240]
+        data.update(state=desired,updated_at=int(time.time()),message=text or ('Completed' if success else 'Failed'))
+        _atomic(path,data)
+        return data
 
 
 def worker_status(root, now=None):

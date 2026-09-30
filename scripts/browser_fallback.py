@@ -10,12 +10,15 @@ from urllib.parse import urlsplit
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 
-from oursteps.auth import STATE, security_check
+from oursteps.auth import STATE, security_check, session_digest
 from oursteps.auth_verify import identity
 from oursteps.config import UID
 from oursteps.deployment import deployment, remote_python
 from oursteps.fetch import validate_url
 from oursteps.parser import ParseError, parse_thread, query, soup_of, thread_url
+from oursteps.store import atomic_write
+from scripts.process_utils import install_signal_cleanup,run_group
+install_signal_cleanup()
 
 WAIT_SECONDS=20
 
@@ -65,20 +68,23 @@ def install_candidate(saved,cookies):
         cookies=[c for c in cookies if c.get('domain','').lstrip('.') in ('oursteps.com.au','www.oursteps.com.au')],
         origins=[],uid=UID,verified_at=time.time())
     host,_=deployment()
-    check=subprocess.run(
+    check=run_group(
         ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
          remote_python('scripts/verify_auth.py','--candidate')],
-        input=json.dumps(candidate),text=True,capture_output=True,timeout=120)
+        input=json.dumps(candidate),text=True,timeout=120)
     if check.returncode:
         detail=(check.stderr or check.stdout).strip().splitlines()[-1:] or ['unknown']
         raise RuntimeError('browser_session_handoff_failed:'+detail[0][:200])
+    atomic_write(ROOT/'data/auth-status.json',json.dumps(dict(
+        category='success',at=time.time(),retry_at=0,attempts=0,session_reused=True,
+        uid=UID,session_sha256=session_digest(candidate))).encode())
 
 def import_snapshot(url,content):
     host,_=deployment()
-    run=subprocess.run(
+    run=run_group(
         ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
          remote_python('scripts/import_browser_snapshot.py','--url',url)],
-        input=content,capture_output=True,timeout=60)
+        input=content,text=False,timeout=60)
     if run.returncode:
         detail=(run.stderr or run.stdout).decode('utf-8','replace').strip().splitlines()[-1:] or ['unknown']
         raise RuntimeError('browser_snapshot_import_failed:'+detail[0][:200])

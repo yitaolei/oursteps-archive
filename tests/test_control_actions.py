@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from oursteps.control_actions import WEB_ACTIONS,claim,finish,request,status,worker_status,write_worker_status
@@ -18,7 +19,23 @@ class ControlActionQueueTests(unittest.TestCase):
         job=claim(self.root);self.assertEqual(job['state'],'running');self.assertEqual(job['message'],'Running on Mac Studio')
         self.assertIsNone(claim(self.root))
         done=finish(self.root,job['id'],True,' ok\nsecret-free ');self.assertEqual(done['state'],'succeeded');self.assertEqual(done['message'],'ok secret-free')
+        repeated=finish(self.root,job['id'],True,'ignored retry');self.assertEqual(repeated['state'],'succeeded')
+        with self.assertRaises(ValueError): finish(self.root,job['id'],False,'conflict')
         again,created=request(self.root,'incremental_sync');self.assertTrue(created);self.assertNotEqual(again['id'],first['id'])
+    def test_stale_running_action_expires_before_new_request(self):
+        job,_=request(self.root,'incremental_sync')
+        running=claim(self.root)
+        path=self.root/'data/control-actions'/(running['id']+'.json')
+        data=json.loads(path.read_text())
+        data['updated_at']=int(time.time())-(2*60*60+1)
+        path.write_text(json.dumps(data))
+        replacement,created=request(self.root,'incremental_sync')
+        self.assertTrue(created)
+        self.assertNotEqual(replacement['id'],running['id'])
+        expired=json.loads(path.read_text())
+        self.assertEqual(expired['state'],'failed')
+        self.assertIn('Stale running action expired',expired['message'])
+
     def test_status_is_sanitized(self):
         job,_=request(self.root,'publish_public')
         data=status(self.root)[0]

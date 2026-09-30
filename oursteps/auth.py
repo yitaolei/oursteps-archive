@@ -2,6 +2,7 @@
 from .deployment import deployment, remote_python
 from .config import UID, USERNAME
 import getpass
+import hashlib
 import json
 import os
 import sys
@@ -15,6 +16,10 @@ ROOT=Path(__file__).resolve().parents[1]
 STATE=ROOT/'.secrets'/'session.json'
 SERVICE='oursteps-archive'
 ACCOUNT=USERNAME
+
+def session_digest(data):
+    payload=json.dumps(data,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 from .auth_verify import identity, inspect_response, VerificationIssue
 
@@ -114,7 +119,7 @@ def bootstrap(interactive=None):
                     except (ValueError,IndexError):raise VerificationIssue('retry_later','nas_verification_transport',True,retry_after=60)
                     raise VerificationIssue(failure.get('category','unexpected_layout'),failure.get('reason','nas_verification_failed'),failure.get('category')=='retry_later',60)
                 result=json.loads(check.stdout.strip().splitlines()[-1])
-                atomic_write(status_path,json.dumps(dict(category='success',at=time.time(),retry_at=0,attempts=0,session_reused=session_reused)).encode())
+                atomic_write(status_path,json.dumps(dict(category='success',at=time.time(),retry_at=0,attempts=0,session_reused=session_reused,uid=UID,session_sha256=session_digest(candidate))).encode())
                 print(json.dumps(result,ensure_ascii=False),flush=True)
             finally:browser.close()
     except VerificationIssue as e:

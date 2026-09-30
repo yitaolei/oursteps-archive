@@ -3,14 +3,18 @@
 import argparse
 import fcntl
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from oursteps.deployment import deployment, remote_python
+from scripts.process_utils import install_signal_cleanup,run_group
+install_signal_cleanup()
 
 # oursteps-update-lock-v1
 LOCK_PATH = Path.home()/'.local/share/oursteps-runtime/update-now.lock'
@@ -37,14 +41,38 @@ p.add_argument('--date');p.add_argument('--now',action='store_true');p.add_argum
 a=p.parse_args()
 runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
 if not runtime.exists(): raise SystemExit('Run Authenticate OurSteps.command once to install the local runtime')
-auth=subprocess.run([str(runtime),str(ROOT/'archive.py'),'auth'],stdin=subprocess.DEVNULL,capture_output=True,text=True)
 auth_log=ROOT/'data/logs/auth-launcher.log'
 auth_log.parent.mkdir(exist_ok=True)
-with auth_log.open('a') as f:f.write(auth.stdout+auth.stderr)
-if auth.returncode:
-    print((auth.stdout+auth.stderr).strip())
-    raise SystemExit(auth.returncode)
-print('Authentication: success (saved session verified)',flush=True)
+auth_status=ROOT/'data/auth-status.json'
+session_state=ROOT/'.secrets/session.json'
+AUTH_REUSE_SECONDS=15*60
+recent_auth=False
+try:
+    status=json.loads(auth_status.read_text()) if auth_status.exists() else {}
+    session=json.loads(session_state.read_text()) if session_state.exists() else {}
+    payload=json.dumps(session,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+    digest=hashlib.sha256(payload).hexdigest()
+    age=time.time()-float(status.get('at',0))
+    recent_auth=(status.get('category')=='success' and session.get('uid')==status.get('uid') and
+                 status.get('session_sha256')==digest and 0<=age<=AUTH_REUSE_SECONDS)
+except (OSError,ValueError,TypeError):
+    recent_auth=False
+if recent_auth:
+    print('Authentication: recent verified session reused',flush=True)
+else:
+    try:
+        auth=run_group([str(runtime),str(ROOT/'archive.py'),'auth'],
+            stdin=subprocess.DEVNULL,text=True,timeout=180)
+    except subprocess.TimeoutExpired:
+        with auth_log.open('a') as f:
+            f.write(dt.datetime.now().isoformat()+' auth timeout after 180 seconds; saved session preserved\n')
+        print('Authentication timed out after 180 seconds; saved session preserved.')
+        raise SystemExit(75)
+    with auth_log.open('a') as f:f.write(auth.stdout+auth.stderr)
+    if auth.returncode:
+        print((auth.stdout+auth.stderr).strip())
+        raise SystemExit(auth.returncode)
+    print('Authentication: success (saved session verified)',flush=True)
 # CLI is intentionally fixed, all date inputs validated before shell transport.
 dates=[dt.date.fromisoformat(a.date).isoformat()] if a.date else [None]
 if a.nightly:
@@ -60,7 +88,7 @@ def remote_sync(day):
     command=remote_python('archive.py','sync-today')
     if day:command+=' --date '+day
     if a.now:command+=' --now'
-    return subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],command],capture_output=True,text=True)
+    return run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],command],text=True,timeout=900)
 
 def summary_from(result):
     try:
@@ -70,8 +98,8 @@ def summary_from(result):
 
 def remote_candidates(seed):
     host,_=deployment()
-    run=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
-        remote_python('scripts/browser_fallback_candidates.py')],capture_output=True,text=True,timeout=30)
+    run=run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
+        remote_python('scripts/browser_fallback_candidates.py')],text=True,timeout=30)
     if run.returncode:
         return [seed]
     try:
@@ -113,8 +141,8 @@ for day in dates:
             break
         attempted.update(urls)
         print('Browser fallback: resolving %d thread(s) in one Chrome session.'%len(urls),flush=True)
-        fb=subprocess.run([str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],
-                          capture_output=True,text=True,timeout=600)
+        fb=run_group([str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],
+                     text=True,timeout=600)
         with log.open('a') as f:
             f.write(fb.stdout)
             f.write(fb.stderr)
@@ -130,8 +158,8 @@ for day in dates:
     if result.returncode:
         break
     if summary['status']=='success' and not summary['failures']:
-        publish=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],
-            remote_python('scripts/publish_public.py')],capture_output=True,text=True)
+        publish=run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],
+            remote_python('scripts/publish_public.py')],text=True,timeout=300)
         with log.open('a') as f:f.write(publish.stdout+publish.stderr)
         print('Public publish: '+('success' if publish.returncode==0 else 'FAILED; private sync preserved; see update-launcher.log'))
         code=max(code,publish.returncode)

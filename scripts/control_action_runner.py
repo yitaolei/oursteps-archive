@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Mac-only safe action runner. Fixed allowlist; registry text is never executed."""
-import fcntl,json,subprocess,sys
+import fcntl,json,subprocess,sys,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from oursteps.deployment import deployment,remote_python
+from scripts.process_utils import install_signal_cleanup,run_group
+install_signal_cleanup()
 
 def action_spec(action):
     mapping={
@@ -23,7 +25,7 @@ def main():
         except BlockingIOError: return 0
         host,_=deployment()
         def remote(*args,input=None,timeout=30):
-            return subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,remote_python(*args)],input=input,text=True,capture_output=True,timeout=timeout)
+            return run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,remote_python(*args)],input=input,text=True,timeout=timeout)
         got=remote('scripts/control_action_queue.py','claim')
         if got.returncode: return got.returncode
         job=json.loads(got.stdout).get('job')
@@ -35,7 +37,7 @@ def main():
                 run=remote('scripts/publish_public.py',timeout=timeout)
                 if run.returncode==0: run=remote('scripts/public_healthcheck.py',timeout=timeout)
             else:
-                run=subprocess.run(spec,capture_output=True,text=True,timeout=timeout)
+                run=run_group(spec,text=True,timeout=timeout)
             if run.stdout:
                 print('[%s %s] stdout\n%s' % (action,job['id'],run.stdout),end='' if run.stdout.endswith('\n') else '\n',flush=True)
             if run.stderr:
@@ -46,7 +48,15 @@ def main():
         except Exception:
             success=False;message='Action runner error; inspect operator logs'
         payload=json.dumps({'id':job['id'],'success':success,'message':message})
-        done=remote('scripts/control_action_queue.py','finish',input=payload)
-        return 0 if success and done.returncode==0 else 1
+        done=None
+        for attempt in range(3):
+            try:
+                done=remote('scripts/control_action_queue.py','finish',input=payload,timeout=30)
+            except subprocess.TimeoutExpired:
+                done=None
+            if done is not None and done.returncode==0:
+                break
+            time.sleep(2*(attempt+1))
+        return 0 if success and done is not None and done.returncode==0 else 1
 
 if __name__=='__main__': raise SystemExit(main())
