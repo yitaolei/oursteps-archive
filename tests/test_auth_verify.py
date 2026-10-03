@@ -27,12 +27,74 @@ class VerifyTests(unittest.TestCase):
         base='<a href="?uid=424242">archive_test_user</a>'
         self.assertFalse(identity(soup_of(base.encode())))
         self.assertTrue(identity(soup_of((base+'<a href="?mod=logging&action=logout">退出</a>').encode())))
-    def test_stale_profile_does_not_invalidate_cached_offset(self):
+    def test_cached_offset_survives_same_season(self):
         now=dt.datetime.fromisoformat('2026-09-09T00:00:00+00:00').timestamp()
         saved=dict(display_offset_hours=10,display_offset_verified_at=now-7200)
         self.assertEqual(cached_display_offset(saved,now),10)
-        with self.assertRaises(VerificationIssue) as c:cached_display_offset(saved,dt.datetime.fromisoformat('2026-12-09T00:00:00+00:00').timestamp())
-        self.assertEqual(c.exception.category,'timezone_required')
+
+    def test_sydney_dst_transition_auto_reconfirms_without_overwriting_primary_evidence(self):
+        winter=dt.datetime.fromisoformat('2026-09-09T00:00:00+00:00').timestamp()
+        summer=dt.datetime.fromisoformat('2026-12-09T00:00:00+00:00').timestamp()
+        saved=dict(
+            display_offset_hours=10,
+            display_offset_verified_at=winter,
+            display_offset_evidence='primary verified Sydney evidence',
+            display_timezone_name='Australia/Sydney',
+            display_timezone_verified_at=winter,
+            display_offset_effective_at=winter,
+        )
+        self.assertEqual(cached_display_offset(saved,summer),11)
+        self.assertEqual(saved['display_offset_hours'],11)
+        self.assertEqual(saved['display_offset_verified_at'],winter)
+        self.assertEqual(saved['display_offset_evidence'],'primary verified Sydney evidence')
+        self.assertEqual(saved['display_offset_effective_at'],summer)
+        self.assertIn('seasonal DST auto-rollover',saved['display_offset_derivation'])
+        self.assertEqual(cached_display_offset(saved,summer+3600),11)
+
+        autumn=dt.datetime.fromisoformat('2027-04-10T00:00:00+00:00').timestamp()
+        self.assertEqual(cached_display_offset(saved,autumn),10)
+        self.assertEqual(saved['display_offset_hours'],10)
+        self.assertEqual(saved['display_offset_verified_at'],winter)
+
+    def test_dst_auto_reconfirm_requires_explicit_sydney_timezone(self):
+        winter=dt.datetime.fromisoformat('2026-09-09T00:00:00+00:00').timestamp()
+        summer=dt.datetime.fromisoformat('2026-12-09T00:00:00+00:00').timestamp()
+        for timezone_name in (None,'Etc/GMT-10'):
+            saved=dict(display_offset_hours=10,display_offset_verified_at=winter,
+                       display_timezone_name=timezone_name)
+            with self.assertRaises(VerificationIssue) as c:
+                cached_display_offset(saved,summer)
+            self.assertEqual(c.exception.category,'timezone_required')
+
+    def test_dst_auto_reconfirm_rejects_stale_or_future_effective_state(self):
+        summer=dt.datetime.fromisoformat('2026-12-09T00:00:00+00:00').timestamp()
+        stale=dt.datetime.fromisoformat('2025-09-09T00:00:00+00:00').timestamp()
+        future=dt.datetime.fromisoformat('2027-01-09T00:00:00+00:00').timestamp()
+        for effective in (stale,future):
+            saved=dict(
+                display_offset_hours=10,
+                display_offset_verified_at=stale,
+                display_timezone_name='Australia/Sydney',
+                display_offset_effective_at=effective,
+            )
+            with self.assertRaises(VerificationIssue) as c:
+                cached_display_offset(saved,summer)
+            self.assertEqual(c.exception.category,'timezone_required')
+    def test_dst_state_age_checked_even_when_offset_matches(self):
+        now=dt.datetime.fromisoformat('2026-12-09T00:00:00+00:00').timestamp()
+        stale=now-(241*24*60*60)
+        future=now+60
+        for effective in (stale,future):
+            saved=dict(
+                display_offset_hours=11,
+                display_offset_verified_at=stale,
+                display_timezone_name='Australia/Sydney',
+                display_offset_effective_at=effective,
+            )
+            with self.assertRaises(VerificationIssue) as c:
+                cached_display_offset(saved,now)
+            self.assertEqual(c.exception.category,'timezone_required')
+
     def test_retry_preserves_session_and_logs_raw(self):
         import tempfile
         from oursteps import auth

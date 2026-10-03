@@ -34,12 +34,28 @@ def publication_time(value,content,display_offset=None):
     return instant.astimezone(SYDNEY).strftime('%Y-%m-%d %H:%M')
 
 
-def cached_display_offset(saved,now=None):
-    """Keep previous corroborated evidence; authentication is not a timezone probe.
+MAX_DST_CHAIN_GAP=240*24*60*60
 
-    Do not infer an offset from a historical last-visit clock on repeated runs.
-    Reconfirmation is required when Sydney's seasonal offset changes, or the
-    account timezone is changed (invalidate this evidence explicitly).
+def _sydney_transition_count(start,end):
+    if end<=start:
+        return 0
+    cursor=start
+    previous=dt.datetime.fromtimestamp(cursor,SYDNEY).utcoffset()
+    count=0
+    while cursor<end:
+        cursor=min(cursor+6*60*60,end)
+        current=dt.datetime.fromtimestamp(cursor,SYDNEY).utcoffset()
+        if current!=previous:
+            count+=1
+            previous=current
+    return count
+
+def cached_display_offset(saved,now=None):
+    """Reuse verified Sydney display-time evidence with a bounded DST chain.
+
+    Automatic rollover requires an explicitly verified Australia/Sydney timezone,
+    a recent effective offset state, and exactly one Sydney DST transition since
+    that state. Original human/primary verification evidence is preserved.
     """
     from .auth_verify import VerificationIssue
     now=now if now is not None else dt.datetime.now(dt.timezone.utc).timestamp()
@@ -47,7 +63,42 @@ def cached_display_offset(saved,now=None):
     offset=saved.get('display_offset_hours')
     if not stamp or not isinstance(offset,(int,float)) or not -12<=offset<=14:
         raise VerificationIssue('timezone_required','missing_verified_display_offset')
-    then=dt.datetime.fromtimestamp(stamp,SYDNEY);current=dt.datetime.fromtimestamp(now,SYDNEY)
+
+    current=dt.datetime.fromtimestamp(now,SYDNEY)
+    current_hours=current.utcoffset().total_seconds()/3600
+    timezone_name=saved.get('display_timezone_name')
+
+    if timezone_name=='Australia/Sydney':
+        effective_at=saved.get('display_offset_effective_at',stamp)
+        if not isinstance(effective_at,(int,float)) or effective_at<=0 or effective_at>now:
+            raise VerificationIssue('timezone_required','invalid_display_offset_effective_time')
+        age=now-effective_at
+        if age>MAX_DST_CHAIN_GAP:
+            raise VerificationIssue('timezone_required','stale_display_offset_effective_time')
+        old=float(offset)
+        effective_sydney=dt.datetime.fromtimestamp(effective_at,SYDNEY)
+        effective_hours=effective_sydney.utcoffset().total_seconds()/3600
+
+        if old==current_hours:
+            if old!=effective_hours:
+                raise VerificationIssue('timezone_required','display_offset_state_inconsistent')
+            return offset
+
+        if not (
+            old==effective_hours and
+            {old,current_hours}=={10.0,11.0} and
+            abs(current_hours-old)==1.0 and
+            _sydney_transition_count(effective_at,now)==1
+        ):
+            raise VerificationIssue('timezone_required','seasonal_offset_changed_reconfirm_display_timezone')
+        saved['display_offset_hours']=current_hours
+        saved['display_offset_effective_at']=now
+        saved['display_offset_derived_at']=now
+        saved['display_offset_derivation']=(
+            'Australia/Sydney seasonal DST auto-rollover (%s)' % current.tzname())
+        return current_hours
+
+    then=dt.datetime.fromtimestamp(stamp,SYDNEY)
     if then.utcoffset()!=current.utcoffset():
         raise VerificationIssue('timezone_required','seasonal_offset_changed_reconfirm_display_timezone')
     return offset
