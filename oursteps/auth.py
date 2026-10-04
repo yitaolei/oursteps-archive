@@ -70,7 +70,7 @@ def checked_get(page,url,directory=False):
         except Exception as e:issue=VerificationIssue('parser_bug',type(e).__name__)
         diagnostic(url,content,issue,response.status if response else None)
         if not issue.retry:raise issue
-        delay=max(30*2**attempt*random.uniform(1,1.3),retry_after(response.headers.get('retry-after')) if response and response.status==429 else 0)
+        delay=max(issue.retry_after,30*2**attempt*random.uniform(1,1.3),retry_after(response.headers.get('retry-after')) if response and response.status==429 else 0)
         if attempt==1 or (response and response.status==429):
             issue.retry_after=delay
             raise issue
@@ -79,6 +79,7 @@ def checked_get(page,url,directory=False):
 def bootstrap(interactive=None):
     from playwright.sync_api import sync_playwright
     from .dates import cached_display_offset
+    from .fetch import AGENT
     if interactive is None:interactive=sys.stdin.isatty()
     # Never chmod the shared directory through SMB, or discard a known-good state.
     os.umask(0o077)
@@ -92,7 +93,7 @@ def bootstrap(interactive=None):
         with sync_playwright() as p:
             browser=p.chromium.launch(channel='chrome',headless=True)
             try:
-                context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]})
+                context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]},user_agent=AGENT)
                 page=context.new_page()
                 try:checked_get(page,directory_url(),directory=True)
                 except VerificationIssue as issue:

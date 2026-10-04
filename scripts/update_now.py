@@ -13,6 +13,7 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from oursteps.deployment import deployment, remote_python
+from oursteps.config import UID
 from scripts.process_utils import install_signal_cleanup,run_group
 install_signal_cleanup()
 
@@ -46,7 +47,24 @@ auth_log.parent.mkdir(exist_ok=True)
 auth_status=ROOT/'data/auth-status.json'
 session_state=ROOT/'.secrets/session.json'
 AUTH_REUSE_SECONDS=15*60
+AUTH_CLOUDFRONT_GRACE_SECONDS=36*60*60
+status={}
+session={}
 recent_auth=False
+
+def trusted_session_for_cloudfront(saved,now=None):
+    now=time.time() if now is None else now
+    try:
+        age=now-float(saved.get('verified_at',0))
+    except (TypeError,ValueError):
+        return False
+    return (
+        saved.get('uid')==UID and
+        isinstance(saved.get('cookies'),list) and bool(saved.get('cookies')) and
+        saved.get('display_timezone_name')=='Australia/Sydney' and
+        0<=age<=AUTH_CLOUDFRONT_GRACE_SECONDS
+    )
+
 try:
     status=json.loads(auth_status.read_text()) if auth_status.exists() else {}
     session=json.loads(session_state.read_text()) if session_state.exists() else {}
@@ -70,9 +88,22 @@ else:
         raise SystemExit(75)
     with auth_log.open('a') as f:f.write(auth.stdout+auth.stderr)
     if auth.returncode:
-        print((auth.stdout+auth.stderr).strip())
-        raise SystemExit(auth.returncode)
-    print('Authentication: success (saved session verified)',flush=True)
+        try:
+            latest=json.loads(auth_status.read_text()) if auth_status.exists() else {}
+        except (OSError,ValueError):
+            latest={}
+        cloudfront_grace=(
+            latest.get('category')=='retry_later' and
+            latest.get('reason')=='cloudfront_403' and
+            trusted_session_for_cloudfront(session)
+        )
+        if cloudfront_grace:
+            print('Authentication preflight: CloudFront 403; using last verified session and continuing to NAS verification.',flush=True)
+        else:
+            print((auth.stdout+auth.stderr).strip())
+            raise SystemExit(auth.returncode)
+    else:
+        print('Authentication: success (saved session verified)',flush=True)
 # CLI is intentionally fixed, all date inputs validated before shell transport.
 dates=[dt.date.fromisoformat(a.date).isoformat()] if a.date else [None]
 if a.nightly:

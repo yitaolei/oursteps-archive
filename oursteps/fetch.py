@@ -16,7 +16,8 @@ from urllib.parse import urlsplit, unquote, urljoin
 from urllib.robotparser import RobotFileParser
 from .parser import BASE, Blocked, Busy, query, soup_of, guard, NotFound
 
-AGENT = 'OurStepsPersonalArchive/0.1 (bounded archive)'
+AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 OurStepsPersonalArchive/0.1'
+ROBOTS_AGENT = 'OurStepsPersonalArchive'
 
 class RateLimited(Busy):
     def __init__(self, delay):
@@ -106,7 +107,7 @@ def longest_rule_allowed(lines, url):
     matching=[]
     best=-1
     for names,entries in groups:
-        sizes=[0 if name=='*' else len(name) for name in names if name=='*' or name in AGENT.lower()]
+        sizes=[0 if name=='*' else len(name) for name in names if name=='*' or name in ROBOTS_AGENT.lower()]
         if not sizes:
             continue
         score=max(sizes)
@@ -296,8 +297,8 @@ class Fetcher:
             raise Blocked('invalid_robots_response')
         robot = RobotFileParser()
         robot.parse(lines)
-        rate = robot.request_rate(AGENT)
-        self.delay = max(2.0, robot.crawl_delay(AGENT) or 0, rate.seconds/rate.requests if rate else 0)
+        rate = robot.request_rate(ROBOTS_AGENT)
+        self.delay = max(2.0, robot.crawl_delay(ROBOTS_AGENT) or 0, rate.seconds/rate.requests if rate else 0)
         windows = re.findall(r'(?im)^visit-time:\s*(\d{4})-(\d{4})\s*$', '\n'.join(lines))
         if windows and set(windows) != {('1400','2200')}:
             raise Blocked('visit_time_changed_review_required')

@@ -16,6 +16,7 @@ from oursteps.config import UID
 from oursteps.deployment import deployment, remote_python
 from oursteps.fetch import validate_url
 from oursteps.parser import ParseError, parse_thread, query, soup_of, thread_url
+from oursteps.fetch import AGENT
 from oursteps.store import atomic_write
 from scripts.process_utils import install_signal_cleanup,run_group
 install_signal_cleanup()
@@ -102,7 +103,7 @@ def main():
     with sync_playwright() as p:
         browser=p.chromium.launch(channel='chrome',headless=True)
         try:
-            context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]})
+            context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]},user_agent=AGENT)
             page=context.new_page()
             for index,url in enumerate(urls):
                 response=None
