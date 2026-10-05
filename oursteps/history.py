@@ -30,7 +30,7 @@ def inventory_page(store,content,url):
 
 def discover(store,now=False):
     prepare(store);state=store.db.execute('SELECT * FROM inventory_progress').fetchone()
-    if max(state['retry_at'],float(store.setting('pause_until','0')))>time.time():return 'retry_later'
+    if max(state['retry_at'],float(store.setting('historical_pause_until','0')))>time.time():return 'retry_later'
     # Resume the first uncommitted page exactly; never restart a blocked pass.
     page=1 if state['state']=='complete' else max(1,state['next_page'])
     fetch=Fetcher(store);fetch.daily_now=now;seen=set()
@@ -53,7 +53,7 @@ def discover(store,now=False):
         if category=='pagination_limited':delay=max(delay,86400)
         elif paused and not transient:delay=max(delay,3600)
         with store.db:store.db.execute('UPDATE inventory_progress SET state=?,attempts=?,retry_at=?,error=? WHERE id=1',(category,attempts,time.time()+delay if paused else 0,str(e)))
-        if transient:store.set_setting('pause_until',time.time()+delay)
+        if transient:store.set_setting('historical_pause_until',time.time()+delay)
         return category
 
 HISTORICAL_PREVIEW_PENDING='historical_preview_pending_tids'
@@ -121,7 +121,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
             status=run(store,tids=[tid],fetcher_override=fetch,**limits)
             if status=='budget_reached':break
             if status in ('halted','waiting_window') or store.setting('halt'):break
-            pause_until = float(store.setting('pause_until','0'))
+            pause_until = float(store.setting('historical_pause_until','0'))
             if pause_until > time.time():
                 # Historical backfill is intended to run unattended.
                 # Wait through transient site/backoff pauses instead of exiting
@@ -135,7 +135,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
                         delay=min(delay,remaining)
                     from .performance import measure
                     measure(store,'backoff_seconds',time.sleep,delay)
-                    pause_until = float(store.setting('pause_until','0'))
+                    pause_until = float(store.setting('historical_pause_until','0'))
                 if status=='budget_reached':break
                 status = 'partial'
                 continue

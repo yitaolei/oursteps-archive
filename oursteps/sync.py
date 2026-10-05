@@ -153,7 +153,11 @@ def sync(store,day=None,now=False):
             for tid in tids:
                 store.db.execute('UPDATE jobs SET state="pending",error="reauth_fetch",retry_at=0 WHERE tid=? AND state="auth_required" AND retry_at<?',(tid,verified))
         status=run(store,tids=tids,fetcher_override=fetch)
-        if status not in ('complete','success'): result['status']=status
+        if status not in ('complete','success'):
+            result['status']=status
+        else:
+            store.set_setting('error_streak',0)
+            store.set_setting('pause_until',0)
     except VerificationIssue as e:
         result.update(status=e.category,failures=[e.reason])
         if (browser_fallback_url and

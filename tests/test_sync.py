@@ -97,6 +97,34 @@ class DailyTests(unittest.TestCase):
                     self.assertEqual(tuple(store.db.execute('SELECT * FROM listing_metrics WHERE tid=?',(tid,)).fetchone()),metrics)
 
 
+
+    def test_empty_success_clears_daily_backoff_but_preserves_historical_backoff(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(temp);self.addCleanup(store.db.close)
+            store.set_setting('error_streak',65)
+            store.set_setting('pause_until',1)
+            store.set_setting('historical_error_streak',9)
+            store.set_setting('historical_pause_until',9999999999)
+            tid=1902000
+            pages={
+                directory_url():listing([tid]),
+                thread_url(tid):article(tid,'2026-9-7',301),
+            }
+            class Fake:
+                mode='authenticated_private'
+                def __init__(self,*a,**k):pass
+                def get(self,url):
+                    return store.snapshot(url,pages[url],mode=self.mode)
+                def wait_window(self):pass
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
+                result=sync(store,now=True)
+            self.assertEqual(result['status'],'success',result)
+            self.assertEqual(result['discovered_today'],0,result)
+            self.assertEqual(store.setting('error_streak'),'0')
+            self.assertEqual(store.setting('pause_until'),'0')
+            self.assertEqual(store.setting('historical_error_streak'),'9')
+            self.assertEqual(store.setting('historical_pause_until'),'9999999999')
+
     def test_js_challenge_returns_browser_fallback_url(self):
         from oursteps.auth_verify import VerificationIssue
         with tempfile.TemporaryDirectory() as temp:

@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from oursteps.store import Store
 from oursteps.history import prepare, backfill
 from oursteps.cli import run
-from oursteps.parser import thread_url
+from oursteps.parser import thread_url,Busy
 
 
 class HistoryLimitsTests(unittest.TestCase):
@@ -38,11 +38,28 @@ class HistoryLimitsTests(unittest.TestCase):
             s.db.execute('INSERT INTO inventory VALUES(1,0,0)')
         def work(*args,**kwargs):
             self.assertEqual(kwargs['deadline'],60)
-            s.set_setting('pause_until',10000)
+            s.set_setting('historical_pause_until',10000)
             return 'retry_pending'
         with patch('oursteps.history.Fetcher'),patch('oursteps.preview.build'),patch('oursteps.cli.run',side_effect=work),patch('oursteps.history.time.monotonic',return_value=0),patch('oursteps.history.time.time',return_value=100),patch('oursteps.history.time.sleep') as sleep:
             self.assertEqual(backfill(s,max_minutes=1),'budget_reached')
             sleep.assert_not_called()
+
+
+    def test_historical_backoff_does_not_pollute_daily_backoff(self):
+        s=self.store();tid=1902000;s.seed([tid],'test')
+        s.historical_mode=True
+        s.set_setting('historical_error_streak',2)
+        s.set_setting('error_streak',7)
+        s.set_setting('pause_until',12345)
+        class Fetch:
+            def wait_window(self): pass
+            def get(self,url): raise Busy('site_busy')
+        result=run(s,tids=[tid],fetcher_override=Fetch())
+        self.assertEqual(result,'retry_later')
+        self.assertEqual(s.setting('historical_error_streak'),'3')
+        self.assertGreater(float(s.setting('historical_pause_until','0')),0)
+        self.assertEqual(s.setting('error_streak'),'7')
+        self.assertEqual(s.setting('pause_until'),'12345')
 
     def test_backfill_incremental_preview_success_clears_durable_pending(self):
         s=self.store()

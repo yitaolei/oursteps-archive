@@ -126,7 +126,7 @@ def discover(store,now=False,max_pages=None,max_minutes=None):
     prepare(store);store.db.executescript(SCHEMA);state=progress(store)
     if state['state'] in ('pass_complete','anchor_mismatch'):return state['state']
     if store.setting('halt'):return 'halted'
-    if max(state['retry_at'],float(store.setting('pause_until','0')))>time.time():return 'retry_later'
+    if max(state['retry_at'],float(store.setting('guide_pause_until','0')))>time.time():return 'retry_later'
     frontier=state['next_page'];page=max(1,frontier-2)
     anchors=set()
     for row in store.db.execute('SELECT tids FROM guide_pages WHERE page>=? AND page<?',(page,frontier)):
@@ -173,7 +173,7 @@ def discover(store,now=False,max_pages=None,max_minutes=None):
         attempts=state['attempts']+1
         delay=max(getattr(error,'retry_after',0),min(3600,60*2**min(attempts,6))*random.uniform(1,1.3))
         with store.db:store.db.execute('UPDATE guide_progress SET attempts=? WHERE id=1',(attempts,))
-        if transient:store.set_setting('pause_until',time.time()+delay)
+        if transient:store.set_setting('guide_pause_until',time.time()+delay)
         paused=transient or isinstance(error,Blocked) or category in ('permission_denied','manual_required')
         if paused and not transient:delay=max(delay,3600)
         return stop(category,str(error),time.time()+delay if paused else 0)

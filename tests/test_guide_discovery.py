@@ -145,8 +145,11 @@ class GuideTests(unittest.TestCase):
         self.fill([[101]])
         def busy():raise Busy('site_busy')
         self.pages[guide_url(1)]=busy
+        self.store.set_setting('pause_until',12345)
         self.assertEqual(discover(self.store,max_pages=5),'retry_later')
         self.assertEqual(progress(self.store)['next_page'],1)
+        self.assertGreater(float(self.store.setting('guide_pause_until','0')),0)
+        self.assertEqual(self.store.setting('pause_until'),'12345')
         self.calls.clear()
         self.assertEqual(discover(self.store,max_pages=5),'retry_later')
         self.assertEqual(self.calls,[])

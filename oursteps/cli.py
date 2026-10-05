@@ -17,6 +17,11 @@ from .store import Store, atomic_write
 
 ROOT = Path(__file__).resolve().parent.parent
 
+def backoff_keys(store):
+    if getattr(store,'historical_mode',False):
+        return 'historical_pause_until','historical_error_streak'
+    return 'pause_until','error_streak'
+
 def compact(report):
     return {k:report[k] for k in ('threads','complete_threads','author_posts',
                                  'parsed_pages','pending_jobs','failures','gaps','halt')}
@@ -24,6 +29,7 @@ def compact(report):
 def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None):
     if store.setting('halt') and not offline:
         return 'halted'
+    pause_key,streak_key=backoff_keys(store)
     with store.db:
         run_id = store.db.execute('INSERT INTO runs(started_at,status) VALUES(?,"running")',
                                   (time.time(),)).lastrowid
@@ -44,7 +50,7 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                 if offline and store.db.execute('SELECT count(*) FROM jobs WHERE state="pending"').fetchone()[0]:
                     status = 'offline_missing_raw'
                 break
-            due = max(job['retry_at'], float(store.setting('pause_until', '0')))
+            due = max(job['retry_at'], float(store.setting(pause_key, '0')))
             if not offline and due > time.time():
                 if not wait:
                     status = 'retry_pending'
@@ -120,7 +126,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                         store.db.execute('DELETE FROM gaps WHERE url=? AND pid=0',(job['url'],))
                     store.refresh_status([job['tid']])
                 if not offline:
-                    store.set_setting('error_streak', 0)
+                    store.set_setting(streak_key, 0)
+                    store.set_setting(pause_key, 0)
                     store.historical_auth_streak = 0
                 logging.info('parsed tid=%s page=%s author_posts=%s',job['tid'],job['page'],len(parsed['posts']))
             except VerificationIssue as e:
@@ -136,9 +143,9 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                     else:
                         store.historical_auth_streak = 0
                     if e.retry:
-                        streak=int(store.setting('error_streak','0'))+1
-                        store.set_setting('error_streak',streak)
-                        if streak >= 3:store.set_setting('pause_until',time.time()+max(900,e.retry_after))
+                        streak=int(store.setting(streak_key,'0'))+1
+                        store.set_setting(streak_key,streak)
+                        if streak >= 3:store.set_setting(pause_key,time.time()+max(900,e.retry_after))
                 break
             except OutsideWindow:
                 status = 'waiting_window'
@@ -147,12 +154,12 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                 store.historical_auth_streak = 0
                 error = 'transient:%s' % type(e).__name__
                 store.fail(job,error,retry=True,retry_after=getattr(e,'retry_after',0))
-                streak = int(store.setting('error_streak','0'))+1
-                store.set_setting('error_streak',streak)
+                streak = int(store.setting(streak_key,'0'))+1
+                store.set_setting(streak_key,streak)
                 store.set_setting('adaptive_delay',min(120, max(10,float(store.setting('adaptive_delay','0'))*2)))
                 if isinstance(e,RateLimited) or streak >= 3:
                     pause = max(getattr(e,'retry_after',0),900 if streak < 6 else 3600)
-                    store.set_setting('pause_until',time.time()+pause)
+                    store.set_setting(pause_key,time.time()+pause)
                 logging.warning('%s tid=%s page=%s',error,job['tid'],job['page'])
                 status = 'retry_later'
                 break
