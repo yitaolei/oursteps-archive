@@ -57,7 +57,7 @@ class HistoryLimitsTests(unittest.TestCase):
         result=run(s,tids=[tid],fetcher_override=Fetch())
         self.assertEqual(result,'retry_later')
         self.assertEqual(s.setting('historical_error_streak'),'3')
-        self.assertGreater(float(s.setting('historical_pause_until','0')),0)
+        self.assertEqual(float(s.setting('historical_pause_until','0')),0)
         self.assertEqual(s.setting('error_streak'),'7')
         self.assertEqual(s.setting('pause_until'),'12345')
 

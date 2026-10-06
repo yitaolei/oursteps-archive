@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """NAS-only read-only list of directory threads needing browser fallback."""
+import argparse
 import hashlib
 import json
 import sqlite3
@@ -14,13 +15,20 @@ from oursteps.sync import dated_listing, sydney_today
 
 MAX_CANDIDATES=20
 
-def candidates():
+def candidates(historical=False):
     if sys.platform=='darwin':
         raise RuntimeError('Browser fallback candidates must run on NAS')
     db_path=ROOT/'data/archive.sqlite3'
     db=sqlite3.connect('file:'+str(db_path)+'?mode=ro',uri=True)
     db.row_factory=sqlite3.Row
     try:
+        if historical:
+            rows=db.execute(
+                "SELECT tid,page FROM jobs WHERE state='retry_later' "
+                "AND error='retry_later:incomplete_html' "
+                "ORDER BY attempts ASC,retry_at ASC,tid DESC,page ASC LIMIT ?",
+                (MAX_CANDIDATES,)).fetchall()
+            return [thread_url(row['tid'],row['page']) for row in rows]
         url=directory_url()
         snap=db.execute(
             'SELECT * FROM snapshots WHERE url=? ORDER BY id DESC LIMIT 1',
@@ -45,4 +53,7 @@ def candidates():
         db.close()
 
 if __name__=='__main__':
-    print(json.dumps({'urls':candidates()},separators=(',',':')))
+    p=argparse.ArgumentParser()
+    p.add_argument('--historical',action='store_true')
+    a=p.parse_args()
+    print(json.dumps({'urls':candidates(a.historical)},separators=(',',':')))

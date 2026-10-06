@@ -91,6 +91,19 @@ def import_snapshot(url,content):
         raise RuntimeError('browser_snapshot_import_failed:'+detail[0][:200])
     return json.loads(run.stdout.decode('utf-8').strip().splitlines()[-1])
 
+def build_previews(tids):
+    tids=sorted(set(int(tid) for tid in tids))
+    if not tids:
+        return
+    host,_=deployment()
+    run=run_group(
+        ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
+         remote_python('archive.py','build-preview','--tids',*[str(tid) for tid in tids])],
+        text=True,timeout=300)
+    if run.returncode:
+        detail=(run.stderr or run.stdout).strip().splitlines()[-1:] or ['unknown']
+        raise RuntimeError('browser_preview_build_failed:'+detail[0][:200])
+
 def main():
     if sys.platform!='darwin':
         raise SystemExit('browser_fallback_must_run_on_mac')
@@ -99,7 +112,7 @@ def main():
     urls=list(dict.fromkeys(canonical_thread(value) for value in sys.argv[1:]))
     saved=saved_session()
     from playwright.sync_api import sync_playwright, Error
-    resolved=[]
+    resolved=[];failures=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(channel='chrome',headless=True)
         try:
@@ -108,16 +121,28 @@ def main():
             for index,url in enumerate(urls):
                 response=None
                 try:
-                    response=page.goto(url,wait_until='domcontentloaded',timeout=60000)
-                except Error:
-                    pass
-                content=page_content(page,url,response)
-                imported=import_snapshot(url,content)
-                resolved.append({'url':url,'snapshot_id':imported['snapshot_id']})
+                    try:
+                        response=page.goto(url,wait_until='domcontentloaded',timeout=60000)
+                    except Error:
+                        pass
+                    content=page_content(page,url,response)
+                    imported=import_snapshot(url,content)
+                    resolved.append({'url':url,'snapshot_id':imported['snapshot_id'],
+                                     'thread_status':imported.get('thread_status')})
+                except Exception as exc:
+                    failures.append({'url':url,'error':type(exc).__name__+':'+str(exc)[:200]})
                 if index+1<len(urls):
                     page.wait_for_timeout(2500)
+            complete_tids=[
+                int(query(item['url'])['tid']) for item in resolved
+                if item.get('thread_status')=='complete'
+            ]
+            build_previews(complete_tids)
             install_candidate(saved,context.cookies())
-            print(json.dumps({'status':'resolved','count':len(resolved),'items':resolved},separators=(',',':')))
+            print(json.dumps({'status':'resolved' if resolved else 'unresolved',
+                              'count':len(resolved),'failed':len(failures),
+                              'previewed':len(set(complete_tids)),
+                              'items':resolved,'failures':failures},separators=(',',':')))
         finally:
             browser.close()
 

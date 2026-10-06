@@ -38,9 +38,17 @@ def import_snapshot(root,url,content):
         raise ValueError('browser_snapshot_thread_identity_mismatch')
     store=Store(Path(root)/'data')
     try:
+        # Browser fallback is part of historical recovery, so preserve the
+        # historical page-limit semantics while committing the parsed page.
+        store.historical_mode=True
         snap=store.snapshot(canonical,content,status=200,mode='authenticated_private')
-        return {'status':'imported','url':canonical,'snapshot_id':snap['id'],'bytes':len(content)}
+        store.save_page(canonical,parsed,snap)
+        tid=int(query(canonical)['tid'])
+        status=store.db.execute('SELECT status FROM threads WHERE tid=?',(tid,)).fetchone()[0]
+        return {'status':'imported','url':canonical,'snapshot_id':snap['id'],
+                'bytes':len(content),'thread_status':status}
     finally:
+        store.historical_mode=False
         store.db.close()
 
 def main():

@@ -145,7 +145,12 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                     if e.retry:
                         streak=int(store.setting(streak_key,'0'))+1
                         store.set_setting(streak_key,streak)
-                        if streak >= 3:store.set_setting(pause_key,time.time()+max(900,e.retry_after))
+                        if e.reason == 'http_429':
+                            store.set_setting(pause_key,time.time()+max(900,e.retry_after))
+                        # Other historical verification transients are retried
+                        # per job. A truncated/busy page must not globally stall
+                        # unrelated historical threads.
+
                 break
             except OutsideWindow:
                 status = 'waiting_window'
@@ -157,9 +162,17 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                 streak = int(store.setting(streak_key,'0'))+1
                 store.set_setting(streak_key,streak)
                 store.set_setting('adaptive_delay',min(120, max(10,float(store.setting('adaptive_delay','0'))*2)))
-                if isinstance(e,RateLimited) or streak >= 3:
-                    pause = max(getattr(e,'retry_after',0),900 if streak < 6 else 3600)
+                if isinstance(e,RateLimited):
+                    # A real 429 is site-wide pressure: honor Retry-After globally.
+                    pause = max(getattr(e,'retry_after',0),900)
                     store.set_setting(pause_key,time.time()+pause)
+                elif not getattr(store,'historical_mode',False) and streak >= 3:
+                    # Daily sync keeps the conservative global circuit breaker.
+                    pause = 900 if streak < 6 else 3600
+                    store.set_setting(pause_key,time.time()+pause)
+                # Historical backfill uses durable per-job retry_at for ordinary
+                # Busy/timeouts. One troublesome page must not stall thousands
+                # of otherwise healthy threads for 15-60 minutes.
                 logging.warning('%s tid=%s page=%s',error,job['tid'],job['page'])
                 status = 'retry_later'
                 break

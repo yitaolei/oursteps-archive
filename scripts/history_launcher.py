@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local Mac launcher. No hosted AI or scheduling dependency."""
-import argparse,os,subprocess,sys,shlex
+import argparse,json,os,subprocess,sys,shlex
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('mode',choices=['discover','backfill','status','fallback','guide-discover']);p.add_argument('--check',action='store_true');p.add_argument('--now',action='store_true',help='Start manual discovery/backfill outside the normal window');p.add_argument('--best-effort',action='store_true');p.add_argument('--max-threads',type=int);p.add_argument('--max-minutes',type=int);p.add_argument('--max-pages',type=int);a=p.parse_args()
 if any(v is not None and v<=0 for v in (a.max_threads,a.max_minutes,a.max_pages)):p.error('backfill limits must be positive')
@@ -31,6 +31,31 @@ try:
     code=subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,command])
     if code:raise SystemExit(code)
     if a.mode=='backfill':
+        # Historical urllib fetches can be served a JavaScript browser challenge.
+        # Recover a small best-effort batch in real Chrome, then publish.
+        runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
+        try:
+            # Up to four serial batches. This increases throughput without
+            # parallel request bursts; browser_fallback itself keeps 2.5s pacing.
+            for _batch in range(4):
+                candidate=subprocess.run(
+                    ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
+                     remote_python('scripts/browser_fallback_candidates.py','--historical')],
+                    capture_output=True,text=True,timeout=60)
+                if candidate.returncode!=0:
+                    break
+                payload=json.loads(candidate.stdout.strip().splitlines()[-1])
+                urls=payload.get('urls',[])
+                if not urls or not runtime.exists():
+                    break
+                fallback=subprocess.run(
+                    [str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],
+                    text=True,timeout=900)
+                if fallback.returncode:
+                    print('Historical browser fallback batch failed; continuing with next stage.',file=sys.stderr)
+                    break
+        except (OSError,subprocess.SubprocessError,ValueError,KeyError,json.JSONDecodeError) as exc:
+            print('Historical browser fallback unavailable: '+type(exc).__name__,file=sys.stderr)
         publish='cd '+shlex.quote(remote)+' && python3 scripts/publish_public.py'
         code=subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,publish])
     raise SystemExit(code)
