@@ -64,13 +64,18 @@ def page_content(page,url,response):
                     parse_thread(content,url)
                     return content
                 except ParseError as exc:
+                    if str(exc)=='page_identity_mismatch':
+                        raise InfrastructureStop(str(exc)) from exc
                     last=str(exc)
             else:
                 last='identity_not_confirmed'
         except Error:
             last='browser_navigation_in_progress'
         page.wait_for_timeout(500)
-    raise RuntimeError('browser_fallback_unresolved:'+last)
+    error='browser_fallback_unresolved:'+last
+    if last=='browser_navigation_in_progress':
+        raise InfrastructureStop(error)
+    raise RuntimeError(error)
 
 def install_candidate(saved,cookies):
     candidate=dict(saved,
@@ -112,7 +117,7 @@ def build_previews(tids):
 
 def session_result(page,context,saved,urls,historical=False):
     """One serial Chrome session. Only the launcher flushes historical preview."""
-    from playwright.sync_api import Error
+    from playwright.sync_api import Error, TimeoutError as PlaywrightTimeoutError
     started=time.monotonic()
     resolved=[];failures=[];stop_reason=None;handoff_error=None
     attempted=0;previewed=0;importer=None;navigation_seconds=0;handoff_seconds=0
@@ -136,8 +141,10 @@ def session_result(page,context,saved,urls,historical=False):
                 try:
                     try:
                         response=page.goto(url,wait_until='domcontentloaded',timeout=60000)
-                    except Error:
+                    except PlaywrightTimeoutError:
                         pass
+                    except Error as exc:
+                        raise InfrastructureStop('browser_navigation_failed:'+str(exc)) from exc
                     content=page_content(page,url,response)
                 finally:
                     navigation_seconds+=time.monotonic()-navigation_started

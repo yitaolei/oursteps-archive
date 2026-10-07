@@ -4,8 +4,10 @@ import contextlib
 import fcntl
 import io
 import json
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import types
@@ -193,6 +195,55 @@ sys.exit(importer.main(['--stream']))
             self.assertEqual(self.store.db.execute("SELECT count(*) FROM jobs WHERE state='success'").fetchone()[0],2)
         finally:client.abort()
 
+    def assert_held_open_timeout(self,phase):
+        # A local importer child holds the real worker lock. The parent keeps
+        # its pipe writer open until AFTER the child exits on its own deadline.
+        code="""import sys
+from pathlib import Path
+from scripts import import_browser_snapshot as importer
+importer.ROOT=Path(sys.argv[1])
+sys.platform='linux'
+serve=importer.serve_stream
+importer.serve_stream=lambda *args: serve(*args,read_timeout=0.05)
+sys.exit(importer.main(['--stream']))
+"""
+        partial=(b'{"protocol":' if phase=='header' else
+                 json_line(dict(protocol=PROTOCOL,seq=2,url=URLS[1],length=10))+b'\x00\n\xff')
+        read_fd,write_fd=os.pipe()
+        try:
+            with os.fdopen(read_fd,'rb') as source:
+                proc=subprocess.Popen([sys.executable,'-B','-u','-c',code,str(self.root)],
+                                      stdin=source,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            try:
+                pending=memoryview(frame(1,1)+partial)
+                while pending:
+                    pending=pending[os.write(write_fd,pending):]
+                stdout,stderr=proc.communicate(timeout=5)
+                os.fstat(write_fd)  # Still open: EOF did not unblock the child.
+                self.assertEqual(proc.returncode,2,stderr.decode())
+                lines=[json.loads(line) for line in stdout.splitlines()]
+                self.assertEqual([line['status'] for line in lines],['ready','imported','error'])
+                self.assertEqual(lines[-1]['seq'],2)
+                self.assertIn('stream_'+phase+'_idle_timeout',lines[-1]['error'])
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate()
+        finally:
+            os.close(write_fd)
+        with open(self.store.root/'worker.lock','a') as probe:
+            fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM pages').fetchone()[0],1)
+        self.assertEqual([row[0] for row in self.store.db.execute(
+            'SELECT state FROM jobs ORDER BY page')],['success','retry_later'])
+        self.assertEqual(self.store.setting('historical_preview_pending_tids'),f'[{TID}]')
+
+    def test_partial_header_held_open_times_out_and_releases_lock(self):
+        self.assert_held_open_timeout('header')
+
+    def test_partial_body_held_open_times_out_and_releases_lock(self):
+        self.assert_held_open_timeout('body')
+
     def test_flush_includes_older_complete_pending_and_retains_incomplete(self):
         with self.store.db:
             for tid,status in ((TID,'complete'),(TID+1,'complete'),(TID+2,'partial')):
@@ -282,6 +333,9 @@ for line in sys.stdin.buffer:
 class BrowserSessionTests(unittest.TestCase):
     def setUp(self):
         fake=types.ModuleType('playwright.sync_api');fake.Error=type('BrowserError',(Exception,),{})
+        fake.TimeoutError=type('BrowserTimeoutError',(fake.Error,),{})
+        self.browser_error=fake.Error;self.browser_timeout=fake.TimeoutError
+        self.real_page_content=browser.page_content
         self.playwright=patch.dict(sys.modules,{'playwright':types.ModuleType('playwright'),'playwright.sync_api':fake})
         self.playwright.start();self.addCleanup(self.playwright.stop)
         self.page=Mock();self.context=Mock()
@@ -314,6 +368,64 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertIn('ack_timeout',result['stop_reason'])
         self.page.wait_for_timeout.assert_not_called();self.mocks[-2].assert_not_called()
         self.client.close.assert_called_once()
+
+    def assert_browser_stop(self,result,reason):
+        self.assertEqual(result['status'],'stopped')
+        self.assertEqual(result['attempted'],1)
+        self.assertEqual(result['imported'],0)
+        self.assertEqual(result['handoff_status'],'skipped_stop')
+        self.assertIn('InfrastructureStop:',result['stop_reason'])
+        self.assertIn(reason,result['stop_reason'])
+        self.page.goto.assert_called_once()
+        self.client.import_page.assert_not_called()
+        self.client.close.assert_called_once()
+        self.mocks[-2].assert_not_called()
+        self.context.cookies.assert_not_called()
+        self.assertNotIn(((2500,),{}),self.page.wait_for_timeout.call_args_list)
+
+    def test_navigation_protocol_error_stops_before_content_or_second_url(self):
+        self.page.goto.side_effect=self.browser_error('Protocol error (Page.navigate): target closed')
+        result=self.session()
+        self.assert_browser_stop(result,'browser_navigation_failed:Protocol error')
+        self.mocks[4].assert_not_called()
+
+    def test_navigation_timeout_can_inspect_content_and_succeed(self):
+        def timeout(url,**kwargs):
+            self.page.url=url
+            raise self.browser_timeout('navigation timed out')
+        self.page.goto.side_effect=timeout
+        self.page.content.side_effect=[content(1).decode(),content(2).decode()]
+        self.mocks[4].side_effect=self.real_page_content
+        with patch.object(browser,'security_check'):
+            result=self.session()
+        self.assertEqual(result['status'],'resolved')
+        self.assertEqual(result['imported'],2)
+        self.assertIsNone(result['stop_reason'])
+        self.assertEqual(self.page.content.call_count,2)
+        self.assertTrue(all(call.args[2] is None for call in self.mocks[4].call_args_list))
+        self.page.wait_for_timeout.assert_called_once_with(2500)
+        self.mocks[-2].assert_called_once()
+
+    def test_exhausted_navigation_in_progress_stops_session(self):
+        self.page.url=URLS[0]
+        self.page.content.side_effect=self.browser_error('navigation in progress')
+        self.mocks[4].side_effect=self.real_page_content
+        # Advance a fake clock at each poll; exercise the real readiness loop.
+        with patch.object(browser,'security_check'),patch.object(browser,'WAIT_SECONDS',3),patch.object(browser.time,'monotonic',side_effect=range(100)):
+            result=self.session()
+        self.page.content.assert_called()
+        self.assert_browser_stop(result,'browser_fallback_unresolved:browser_navigation_in_progress')
+
+    def test_body_page_identity_mismatch_stops_before_second_url(self):
+        self.page.url=URLS[0]
+        markers=b'<div class="pg"><strong>2</strong><input name="custompage" value="2"></div>'
+        self.page.content.return_value=content(1).replace(b'</body>',markers+b'</body>').decode()
+        self.mocks[4].side_effect=self.real_page_content
+        with patch.object(browser,'security_check'):
+            result=self.session()
+        self.assert_browser_stop(result,'page_identity_mismatch')
+        self.page.content.assert_called_once()
+        self.page.wait_for_timeout.assert_not_called()
 
     def test_ready_failure_requests_no_pages(self):
         self.client.start.side_effect=InfrastructureStop('ready_mismatch')

@@ -3,6 +3,8 @@
 import argparse
 import fcntl
 import json
+import os
+import select
 import sys
 import time
 from pathlib import Path
@@ -15,6 +17,70 @@ from oursteps.fetch import validate_url
 from oursteps.parser import parse_thread, query, thread_url
 from oursteps.store import Store
 from scripts.browser_snapshot_stream import MAX_BYTES, MAX_LINE, PROTOCOL, decode_line, json_line
+
+# Allow the browser's 60s navigation, 20s readiness and serial pacing, while
+# releasing worker.lock if an SSH peer stays open without sending more bytes.
+STREAM_READ_TIMEOUT=240
+
+
+class FramedReader:
+    """Own FD buffering: never mix buffered Python reads with select/os.read.
+
+    Each header/body read has an idle deadline, renewed only on received bytes.
+    In-memory sources retain their ordinary nonblocking read methods for tests.
+    """
+    def __init__(self,source,read_timeout):
+        self.source=source
+        self.read_timeout=read_timeout
+        self.buffer=bytearray()
+        try:
+            self.fd=source.fileno()
+        except (AttributeError,OSError):
+            self.fd=None
+
+    def fill(self,phase):
+        deadline=time.monotonic()+self.read_timeout
+        while True:
+            remaining=deadline-time.monotonic()
+            if remaining<=0 or not select.select([self.fd],[],[],remaining)[0]:
+                raise TimeoutError('stream_'+phase+'_idle_timeout')
+            try:
+                chunk=os.read(self.fd,65536)
+            except BlockingIOError:
+                continue
+            self.buffer.extend(chunk)
+            return bool(chunk)
+
+    def header(self):
+        if self.fd is None:
+            return self.source.readline(MAX_LINE+1)
+        while True:
+            end=self.buffer.find(b'\n')
+            if end>=0 or len(self.buffer)>MAX_LINE:
+                length=min(end+1 if end>=0 else len(self.buffer),MAX_LINE+1)
+                break
+            if not self.fill('header'):
+                length=len(self.buffer)
+                break
+        raw=bytes(self.buffer[:length])
+        del self.buffer[:length]
+        return raw
+
+    def body(self,length):
+        if self.fd is None:
+            content=bytearray()
+            while len(content)<length:
+                chunk=self.source.read(length-len(content))
+                if not chunk:
+                    raise ValueError('truncated_frame')
+                content.extend(chunk)
+            return bytes(content)
+        while len(self.buffer)<length:
+            if not self.fill('body'):
+                raise ValueError('truncated_frame')
+        content=bytes(self.buffer[:length])
+        del self.buffer[:length]
+        return content
 
 
 def canonical_thread(url):
@@ -76,7 +142,7 @@ def import_snapshot(root,url,content):
         store.db.close()
 
 
-def serve_stream(store,source,sink):
+def serve_stream(store,source,sink,read_timeout=STREAM_READ_TIMEOUT):
     """Caller holds worker.lock for this entire Store lifetime. EOF between frames
     closes cleanly. Any malformed/failed item terminates without reading another.
     ACK is flushed only after Store.save_page commits. Lost ACKs are recovered by
@@ -87,9 +153,10 @@ def serve_stream(store,source,sink):
         sink.flush()
     seq=1
     try:
+        reader=FramedReader(source,read_timeout)
         emit(dict(status='ready',max_bytes=MAX_BYTES))
         while True:
-            raw=source.readline(MAX_LINE+1)
+            raw=reader.header()
             if not raw:
                 return 0
             header=decode_line(raw)
@@ -101,14 +168,9 @@ def serve_stream(store,source,sink):
             length=header['length']
             if type(length) is not int or not 1<=length<=MAX_BYTES:
                 raise ValueError('invalid_frame_length')
-            content=bytearray()
-            while len(content)<length:
-                chunk=source.read(length-len(content))
-                if not chunk:
-                    raise ValueError('truncated_frame')
-                content.extend(chunk)
+            content=reader.body(length)
             started=time.monotonic()
-            result=save_snapshot(store,url,bytes(content),historical_pending=True)
+            result=save_snapshot(store,url,content,historical_pending=True)
             emit(dict(result,seq=seq,import_seconds=round(time.monotonic()-started,6)))
             seq+=1
     except Exception as exc:
