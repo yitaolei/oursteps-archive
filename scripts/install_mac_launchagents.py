@@ -67,7 +67,7 @@ def specs():
         "local.oursteps.historical-backfill": {
             "ProgramArguments": [wrapper, "clean-nas-env", "scripts/history_launcher.py",
                                  "backfill", "--best-effort", "--now",
-                                 "--max-threads", "80", "--max-minutes", "45"],
+                                 "--max-threads", "120", "--max-minutes", "45"],
             "StartCalendarInterval": calendar(range(7, 22, 2)),
             "RunAtLoad": False,
             "StandardOutPath": str(LOG_DIR / "oursteps-history-backfill.log"),

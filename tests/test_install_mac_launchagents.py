@@ -34,7 +34,7 @@ class MacLaunchAgentInstallerTests(unittest.TestCase):
         self.assertEqual([x["Hour"] for x in inc], list(range(6, 23, 2)))
         self.assertEqual([x["Hour"] for x in hist], list(range(7, 22, 2)))
         self.assertEqual(guide, {"Hour": 3, "Minute": 15})
-        self.assertIn("80", specs["local.oursteps.historical-backfill"]["ProgramArguments"])
+        self.assertIn("120", specs["local.oursteps.historical-backfill"]["ProgramArguments"])
         self.assertIn("45", specs["local.oursteps.historical-backfill"]["ProgramArguments"])
 
     def test_bootstrap_source_handles_numbered_mounts(self):
