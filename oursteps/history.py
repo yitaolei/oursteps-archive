@@ -74,7 +74,28 @@ def _save_historical_preview_pending(store,values):
     store.db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',
                      (HISTORICAL_PREVIEW_PENDING,json.dumps(values,separators=(',',':'))))
 
-def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None):
+def flush_historical_previews(store):
+    """Render all complete durable pending TIDs; caller holds worker.lock.
+
+    Pending incomplete TIDs survive. Clear only after the staged renderer succeeds.
+    This is also the recovery path after a browser commit whose ACK was lost.
+    """
+    preview_pending=_historical_preview_pending(store)
+    complete_pending=[]
+    for tid in sorted(preview_pending):
+        row=store.db.execute('SELECT status FROM threads WHERE tid=?',(tid,)).fetchone()
+        if row is None:
+            raise ValueError('historical preview pending TID missing: %s'%tid)
+        if row[0]=='complete':complete_pending.append(tid)
+    if complete_pending:
+        from .preview_batch import build_batch
+        preview_result=build_batch(store,complete_pending)
+        rendered=set(preview_result['tids']) & set(complete_pending)
+        preview_pending.difference_update(rendered)
+        with store.db:_save_historical_preview_pending(store,preview_pending)
+    return preview_result if complete_pending else None
+
+def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None,defer_preview=False):
     if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes)):
         raise ValueError('backfill limits must be positive integers')
     deadline=time.monotonic()+max_minutes*60 if max_minutes is not None else None
@@ -171,25 +192,14 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         preview_started=time.monotonic()
         preview_result=None;preview_error=None
         try:
-            preview_pending=_historical_preview_pending(store)
-            complete_pending=[]
-            for tid in sorted(preview_pending):
-                row=store.db.execute('SELECT status FROM threads WHERE tid=?',(tid,)).fetchone()
-                if row is None:
-                    raise ValueError('historical preview pending TID missing: %s'%tid)
-                if row[0]=='complete':complete_pending.append(tid)
-            if complete_pending:
-                from .preview_batch import build_batch
-                preview_result=build_batch(store,complete_pending)
-                rendered=set(preview_result['tids']) & set(complete_pending)
-                preview_pending.difference_update(rendered)
-                with store.db:_save_historical_preview_pending(store,preview_pending)
+            if not defer_preview:
+                preview_result=flush_historical_previews(store)
         except Exception as error:
             preview_error=type(error).__name__+': '+str(error)
             raise
         finally:
             perf_report['preview_build_seconds']=round(max(0,time.monotonic()-preview_started),6)
-            perf_report['preview_mode']='incremental' if preview_result is not None else ('failed' if preview_error else 'skipped')
+            perf_report['preview_mode']='incremental' if preview_result is not None else ('failed' if preview_error else ('deferred' if defer_preview else 'skipped'))
             perf_report['preview_rendered_articles']=preview_result['rendered_articles'] if preview_result is not None else 0
             perf_report['preview_pending_tids']=len(_historical_preview_pending(store))
             if preview_error:perf_report['preview_error']=preview_error

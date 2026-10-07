@@ -26,8 +26,10 @@ def candidates(historical=False,limit=20):
     try:
         if historical:
             # Browser recovery is an alternate transport for a fresh JS challenge,
-            # so it may run before urllib retry_at. The launcher de-duplicates URLs
-            # within the current pipeline; the next scheduler run is the next retry.
+            # so it may run before urllib retry_at. One unique session inventory is
+            # queried per pipeline; the next scheduler run is the next retry.
+            # A page committed before an SSH/ACK loss is already state=success
+            # and is excluded here: SQLite is the only recovery checkpoint.
             rows=db.execute(
                 "SELECT j.tid,j.page FROM jobs j "
                 "JOIN inventory i ON i.tid=j.tid "

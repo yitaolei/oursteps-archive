@@ -231,6 +231,7 @@ def main():
     selection = preview.add_mutually_exclusive_group()
     selection.add_argument('--tids',nargs='+',type=int,help='Incrementally render these complete TIDs; never fall back to full')
     selection.add_argument('--recovered-unpublished',action='store_true',help='Select complete reconciliation imports absent from public current')
+    selection.add_argument('--historical-pending',action='store_true',help='NAS-only flush of all complete historical pending TIDs')
     preview.add_argument('--dry-run',action='store_true',help='List the incremental batch without rendering')
     sub.add_parser('reparse')
     imp = sub.add_parser('import-list')
@@ -248,6 +249,9 @@ def main():
         return
     if sys.platform == 'darwin' and str(args.data.resolve()).startswith('/Volumes/'):
         parser.error('Run on NAS local path, or --data on local Mac disk (test data only).')
+    if args.command == 'build-preview' and args.historical_pending:
+        if sys.platform == 'darwin':parser.error('Historical preview flush must run on NAS native filesystem')
+        if args.dry_run:parser.error('--dry-run is not supported with --historical-pending')
     args.data.mkdir(parents=True,exist_ok=True)
     with open(args.data/'worker.lock','a') as lock:
         try:
@@ -264,7 +268,10 @@ def main():
             print(json.dumps(result,ensure_ascii=False))
             sys.exit(0 if result['status']=='success' else 2)
         elif args.command == 'build-preview':
-            if args.tids is not None or args.recovered_unpublished:
+            if args.historical_pending:
+                from .history import flush_historical_previews
+                result=flush_historical_previews(store)
+            elif args.tids is not None or args.recovered_unpublished:
                 from .preview_batch import build_batch
                 result=build_batch(store,args.tids,dry_run=args.dry_run)
             else:

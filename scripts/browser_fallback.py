@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Mac-only Playwright fallback for JS-rendered OurSteps thread pages."""
+import argparse
 import json
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from oursteps.fetch import validate_url
 from oursteps.parser import ParseError, parse_thread, query, soup_of, thread_url
 from oursteps.fetch import AGENT
 from oursteps.store import atomic_write
+from scripts.browser_snapshot_stream import PROTOCOL, InfrastructureStop, StreamImporter
 from scripts.process_utils import install_signal_cleanup,run_group
 install_signal_cleanup()
 
@@ -108,62 +110,139 @@ def build_previews(tids):
         detail=(run.stderr or run.stdout).strip().splitlines()[-1:] or ['unknown']
         raise RuntimeError('browser_preview_build_failed:'+detail[0][:200])
 
-def main():
-    if sys.platform!='darwin':
-        raise SystemExit('browser_fallback_must_run_on_mac')
-    if not 2<=len(sys.argv)<=21:
-        raise SystemExit('usage: browser_fallback.py URL [URL ... up to 20]')
-    urls=list(dict.fromkeys(canonical_thread(value) for value in sys.argv[1:]))
-    saved=saved_session()
-    from playwright.sync_api import sync_playwright, Error
+def session_result(page,context,saved,urls,historical=False):
+    """One serial Chrome session. Only the launcher flushes historical preview."""
+    from playwright.sync_api import Error
+    started=time.monotonic()
     resolved=[];failures=[];stop_reason=None;handoff_error=None
-    with sync_playwright() as p:
-        browser=p.chromium.launch(channel='chrome',headless=True)
-        try:
-            context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]},user_agent=AGENT)
-            page=context.new_page()
-            for index,url in enumerate(urls):
-                response=None
+    attempted=0;previewed=0;importer=None;navigation_seconds=0;handoff_seconds=0
+    handoff_status='skipped_stop';importer_timings={};importer_commit_seconds=0
+    def failure(url,exc):
+        detail=type(exc).__name__+':'+str(exc)[:200]
+        failures.append({'url':url,'error':detail})
+        return detail
+    try:
+        if historical:
+            host,_=deployment()
+            importer=StreamImporter(ssh_argv(host)+[remote_python('scripts/import_browser_snapshot.py','--stream')])
+            importer.start()  # Require ready before requesting any site page.
+        for index,url in enumerate(urls):
+            response=None
+            try:
+                if importer:
+                    importer.ensure_alive()
+                attempted+=1
+                navigation_started=time.monotonic()
                 try:
                     try:
                         response=page.goto(url,wait_until='domcontentloaded',timeout=60000)
                     except Error:
                         pass
                     content=page_content(page,url,response)
+                finally:
+                    navigation_seconds+=time.monotonic()-navigation_started
+                if importer:
+                    try:
+                        imported=importer.import_page(url,content)
+                    except Exception as exc:
+                        # A streaming ACK/EOF/protocol outcome can be uncertain;
+                        # historical recovery must stop rather than request more pages.
+                        raise InfrastructureStop(str(exc)) from exc
+                else:
+                    # Preserve the legacy incremental behavior: a one-page import
+                    # failure is recorded below and the next URL may still proceed.
                     imported=import_snapshot(url,content)
-                    resolved.append({'url':url,'snapshot_id':imported['snapshot_id'],
-                                     'thread_status':imported.get('thread_status')})
-                except Exception as exc:
-                    detail=type(exc).__name__+':'+str(exc)[:200]
-                    failures.append({'url':url,'error':detail})
-                    text=str(exc).lower()
-                    if ('manual_required:' in text
-                            or 'off_origin_navigation' in text
-                            or 'navigation_identity_mismatch' in text):
-                        stop_reason=detail
-                        break
-                if index+1<len(urls):
-                    page.wait_for_timeout(2500)
-            complete_tids=[
-                int(query(item['url'])['tid']) for item in resolved
-                if item.get('thread_status')=='complete'
-            ]
+                importer_commit_seconds+=imported.get('import_seconds',0)
+                resolved.append({'url':url,'snapshot_id':imported['snapshot_id'],
+                                 'thread_status':imported.get('thread_status')})
+            except Exception as exc:
+                detail=failure(url,exc)
+                text=str(exc).lower()
+                if (isinstance(exc,InfrastructureStop) or 'manual_required:' in text
+                        or 'off_origin_navigation' in text
+                        or 'navigation_identity_mismatch' in text):
+                    stop_reason=detail
+                    break
+            if index+1<len(urls):
+                page.wait_for_timeout(2500)
+    except Exception as exc:
+        stop_reason=failure(None,exc)
+    finally:
+        if importer:
+            try:
+                # Wait for process exit/lock release before the launcher flushes.
+                importer.close()
+            except Exception as exc:
+                detail=failure(None,exc)
+                stop_reason=stop_reason or detail
+            importer_timings=importer.timings
+    complete_tids=[int(query(item['url'])['tid']) for item in resolved
+                   if item.get('thread_status')=='complete']
+    if not historical:
+        try:
             build_previews(complete_tids)
-            if stop_reason is None:
-                try:
-                    install_candidate(saved,context.cookies())
-                except (subprocess.TimeoutExpired,RuntimeError) as exc:
-                    handoff_error=type(exc).__name__+':'+str(exc)[:200]
-            result={'status':'stopped' if stop_reason else ('resolved' if resolved else 'unresolved'),
-                    'count':len(resolved),'failed':len(failures),
-                    'previewed':len(set(complete_tids)),
-                    'stop_reason':stop_reason,'handoff_error':handoff_error,
-                    'items':resolved,'failures':failures}
-            print(json.dumps(result,separators=(',',':')))
-            if stop_reason or handoff_error:
-                raise SystemExit(2)
+            previewed=len(set(complete_tids))
+        except Exception as exc:
+            detail=failure(None,exc)
+            stop_reason=stop_reason or detail
+    # A stop forbids further site requests, including session verification. For
+    # a normally processed session, hand off exactly once, after all page ACKs.
+    if stop_reason is None:
+        handoff_started=time.monotonic()
+        try:
+            install_candidate(saved,context.cookies())
+            handoff_status='success'
+        except Exception as exc:
+            handoff_error=type(exc).__name__+':'+str(exc)[:200]
+            handoff_status='failed'
+        finally:
+            handoff_seconds=time.monotonic()-handoff_started
+    return {'status':'stopped' if stop_reason else ('resolved' if resolved else 'unresolved'),
+            'protocol_version':PROTOCOL if historical else None,
+            'elapsed_seconds':round(time.monotonic()-started,6),
+            'attempted':attempted,'imported':len(resolved),
+            'complete':sum(item.get('thread_status')=='complete' for item in resolved),
+            'partial':sum(item.get('thread_status')=='partial' for item in resolved),
+            'count':len(resolved),'failed':len(failures),'previewed':previewed,
+            'preview_deferred':historical,'stop_reason':stop_reason,
+            'handoff_error':handoff_error,'handoff_status':handoff_status,
+            'timings':dict(navigation_seconds=round(navigation_seconds,6),
+                           handoff_seconds=round(handoff_seconds,6),
+                           importer_commit_seconds=round(importer_commit_seconds,6),
+                           importer=importer_timings),
+            'items':resolved,'failures':failures}
+
+
+def arguments(argv=None):
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--historical',action='store_true',help='One streaming session of up to 80 URLs; defer preview to launcher')
+    parser.add_argument('urls',nargs='+')
+    args=parser.parse_args(argv)
+    if len(args.urls)>(80 if args.historical else 20):
+        parser.error('too many URLs (historical: 80; incremental: 20)')
+    args.urls=list(dict.fromkeys(canonical_thread(value) for value in args.urls))
+    return args
+
+
+def main():
+    if sys.platform!='darwin':
+        raise SystemExit('browser_fallback_must_run_on_mac')
+    args=arguments()
+    started=time.monotonic()
+    saved=saved_session()
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser=p.chromium.launch(channel='chrome',headless=True)
+        try:
+            context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]},user_agent=AGENT)
+            page=context.new_page()
+            result=session_result(page,context,saved,args.urls,historical=args.historical)
         finally:
             browser.close()
+    result['elapsed_seconds']=round(time.monotonic()-started,6)
+    print(json.dumps(result,separators=(',',':')))
+    if result['stop_reason'] or result['handoff_error']:
+        raise SystemExit(2)
 
 if __name__=='__main__':
     main()

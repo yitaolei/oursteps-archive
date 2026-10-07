@@ -33,6 +33,7 @@ if a.mode!='status' and not (a.mode in ('discover','fallback') and (ROOT/'.secre
  if result.stderr:print(result.stderr,end='',file=sys.stderr)
  if result.returncode:raise SystemExit(result.returncode)
 command='cd '+shlex.quote(remote)+' && python3 scripts/history_worker.py '+a.mode+(' --now' if a.now else '')+(' --best-effort' if a.best_effort else '')
+if a.mode=='backfill':command+=' --defer-preview'
 if a.max_pages is not None:command+=' --max-pages '+str(a.max_pages)
 if a.max_threads is not None:command+=' --max-threads '+str(a.max_threads)
 if a.max_minutes is not None:command+=' --max-minutes '+str(a.max_minutes)
@@ -40,33 +41,33 @@ try:
     code=subprocess.call(ssh_argv(host)+[command])
     if code:raise SystemExit(code)
     if a.mode=='backfill':
-        # Historical urllib fetches can be served a JavaScript browser challenge.
-        # Recover a small best-effort batch in real Chrome, then publish.
+        # A single unique candidate query and one serial, long-lived Chrome/SSH
+        # session. SQLite success state is the checkpoint, including lost ACKs.
         runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
         try:
-            # Up to four serial batches. Query a wider candidate pool and keep a
-            # per-pipeline seen set so one bad page cannot consume every batch.
-            seen=set()
-            for _batch in range(4):
-                candidate=subprocess.run(
-                    ssh_argv(host)+[remote_python(
-                        'scripts/browser_fallback_candidates.py','--historical','--limit','80')],
-                    capture_output=True,text=True,timeout=60)
-                if candidate.returncode!=0:
-                    break
+            candidate=subprocess.run(
+                ssh_argv(host)+[remote_python(
+                    'scripts/browser_fallback_candidates.py','--historical','--limit','80')],
+                capture_output=True,text=True,timeout=60)
+            if candidate.returncode==0:
                 payload=json.loads(candidate.stdout.strip().splitlines()[-1])
-                urls=[u for u in payload.get('urls',[]) if u not in seen][:20]
-                if not urls or not runtime.exists():
-                    break
-                seen.update(urls)
-                fallback=subprocess.run(
-                    [str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],
-                    text=True,timeout=900)
-                if fallback.returncode:
-                    print('Historical browser fallback stopped safely; continuing with publish.',file=sys.stderr)
-                    break
-        except (OSError,subprocess.SubprocessError,ValueError,KeyError,json.JSONDecodeError) as exc:
+                urls=payload['urls']
+                if not isinstance(urls,list) or any(not isinstance(u,str) for u in urls) or len(urls)>80:
+                    raise ValueError('invalid historical candidate list')
+                if urls and runtime.exists():
+                    fallback=subprocess.run(
+                        [str(runtime),str(ROOT/'scripts/browser_fallback.py'),'--historical',*urls],
+                        text=True,timeout=14400)
+                    if fallback.returncode:
+                        print('Historical browser fallback stopped safely; flushing committed preview before publish.',file=sys.stderr)
+            else:
+                print('Historical browser candidate query failed; flushing pending preview.',file=sys.stderr)
+        except (OSError,subprocess.SubprocessError,ValueError,KeyError,IndexError,TypeError) as exc:
             print('Historical browser fallback unavailable: '+type(exc).__name__,file=sys.stderr)
+        # Browser process has finished; importer closes its Store and worker.lock
+        # first. If it is still alive remotely, this nonblocking lock fails closed.
+        code=subprocess.call(ssh_argv(host)+[remote_python('archive.py','build-preview','--historical-pending')])
+        if code:raise SystemExit(code)  # Never publish after a failed flush.
         publish='cd '+shlex.quote(remote)+' && python3 scripts/publish_public.py'
         code=subprocess.call(ssh_argv(host)+[publish])
     raise SystemExit(code)
