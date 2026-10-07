@@ -13,6 +13,7 @@ class MacLaunchAgentInstallerTests(unittest.TestCase):
     def test_all_production_agents_use_stable_local_bootstrap(self):
         specs = module.specs()
         self.assertEqual(set(specs), {
+            "local.oursteps.keep-awake",
             "local.oursteps.worker-status",
             "local.oursteps.control-actions",
             "local.oursteps.incremental-sync",
@@ -20,8 +21,13 @@ class MacLaunchAgentInstallerTests(unittest.TestCase):
             "local.oursteps.historical-backfill",
         })
         wrapper = str(module.BOOTSTRAP_TARGET)
-        for config in specs.values():
-            self.assertEqual(config["ProgramArguments"][0], wrapper)
+        for label, config in specs.items():
+            if label == "local.oursteps.keep-awake":
+                self.assertEqual(config["ProgramArguments"], ["/usr/bin/caffeinate", "-s"])
+                self.assertTrue(config["RunAtLoad"])
+                self.assertTrue(config["KeepAlive"])
+            else:
+                self.assertEqual(config["ProgramArguments"][0], wrapper)
             self.assertEqual(config["WorkingDirectory"], str(Path.home()))
             serialized = repr(config)
             self.assertNotIn("/Volumes/Newhome/docker/oursteps-archive", serialized)

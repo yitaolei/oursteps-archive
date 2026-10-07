@@ -26,6 +26,19 @@ def specs():
     wrapper = str(BOOTSTRAP_TARGET)
     home = str(Path.home())
     return {
+        "local.oursteps.keep-awake": {
+            # Mac Studio is the archive scheduler host. Keep system sleep disabled
+            # while on AC without changing global pmset settings; display sleep is
+            # unaffected. This is reversible by unloading this user LaunchAgent.
+            "ProgramArguments": ["/usr/bin/caffeinate", "-s"],
+            "RunAtLoad": True,
+            "KeepAlive": True,
+            "StandardOutPath": str(LOG_DIR / "oursteps-keep-awake.log"),
+            "StandardErrorPath": str(LOG_DIR / "oursteps-keep-awake-error.log"),
+            "WorkingDirectory": home,
+            "ProcessType": "Background",
+            "ThrottleInterval": 30,
+        },
         "local.oursteps.worker-status": {
             "ProgramArguments": [wrapper, "plain", "scripts/worker_status_snapshot.py"],
             "StartInterval": 30,
@@ -103,7 +116,7 @@ def install(labels=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--install", action="store_true",
-                        help="Write bootstrap/plists and reload all five production LaunchAgents.")
+                        help="Write bootstrap/plists and reload all production LaunchAgents.")
     parser.add_argument("--label", action="append", choices=sorted(specs()),
                         help="Install only this label; may be repeated.")
     args = parser.parse_args()
