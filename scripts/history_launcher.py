@@ -11,7 +11,7 @@ if a.now and a.mode not in ('discover','backfill','guide-discover'):p.error('--n
 if a.best_effort and a.mode!='backfill':p.error('--best-effort requires backfill')
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from oursteps.deployment import deployment, remote_python
+from oursteps.deployment import deployment, remote_python, ssh_argv
 host,remote=deployment()
 if a.check:
  assert (ROOT/'scripts/history_worker.py').is_file()
@@ -28,35 +28,37 @@ if a.max_pages is not None:command+=' --max-pages '+str(a.max_pages)
 if a.max_threads is not None:command+=' --max-threads '+str(a.max_threads)
 if a.max_minutes is not None:command+=' --max-minutes '+str(a.max_minutes)
 try:
-    code=subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,command])
+    code=subprocess.call(ssh_argv(host)+[command])
     if code:raise SystemExit(code)
     if a.mode=='backfill':
         # Historical urllib fetches can be served a JavaScript browser challenge.
         # Recover a small best-effort batch in real Chrome, then publish.
         runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
         try:
-            # Up to four serial batches. This increases throughput without
-            # parallel request bursts; browser_fallback itself keeps 2.5s pacing.
+            # Up to four serial batches. Query a wider candidate pool and keep a
+            # per-pipeline seen set so one bad page cannot consume every batch.
+            seen=set()
             for _batch in range(4):
                 candidate=subprocess.run(
-                    ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
-                     remote_python('scripts/browser_fallback_candidates.py','--historical')],
+                    ssh_argv(host)+[remote_python(
+                        'scripts/browser_fallback_candidates.py','--historical','--limit','80')],
                     capture_output=True,text=True,timeout=60)
                 if candidate.returncode!=0:
                     break
                 payload=json.loads(candidate.stdout.strip().splitlines()[-1])
-                urls=payload.get('urls',[])
+                urls=[u for u in payload.get('urls',[]) if u not in seen][:20]
                 if not urls or not runtime.exists():
                     break
+                seen.update(urls)
                 fallback=subprocess.run(
                     [str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],
                     text=True,timeout=900)
                 if fallback.returncode:
-                    print('Historical browser fallback batch failed; continuing with next stage.',file=sys.stderr)
+                    print('Historical browser fallback stopped safely; continuing with publish.',file=sys.stderr)
                     break
         except (OSError,subprocess.SubprocessError,ValueError,KeyError,json.JSONDecodeError) as exc:
             print('Historical browser fallback unavailable: '+type(exc).__name__,file=sys.stderr)
         publish='cd '+shlex.quote(remote)+' && python3 scripts/publish_public.py'
-        code=subprocess.call(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,publish])
+        code=subprocess.call(ssh_argv(host)+[publish])
     raise SystemExit(code)
 except KeyboardInterrupt:raise SystemExit('Stopped locally; check status before restarting if the NAS worker is still finishing.')

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from oursteps.deployment import deployment, remote_python
+from oursteps.deployment import deployment, remote_python, ssh_argv
 
 
 class DeploymentTests(unittest.TestCase):
@@ -29,6 +29,29 @@ class DeploymentTests(unittest.TestCase):
                     self.assertEqual(deployment(), ('alias', '/alias'))
                     with patch.dict(os.environ, OURSTEPS_NAS_HOST='primary', OURSTEPS_NAS_PROJECT='/primary'):
                         self.assertEqual(deployment(), ('primary', '/primary'))
+
+    def test_reusable_ssh_argv_is_safe_and_private(self):
+        args=ssh_argv('owner@nas.example')
+        self.assertEqual(args[-1],'owner@nas.example')
+        joined=' '.join(args)
+        self.assertIn('ControlMaster=auto',joined)
+        self.assertIn('ControlPersist=300',joined)
+        self.assertIn('ServerAliveInterval=15',joined)
+        control=Path('/tmp')/('oursteps-ssh-%s'%os.getuid())
+        self.assertTrue(control.is_dir())
+        self.assertEqual(control.stat().st_uid,os.getuid())
+        self.assertEqual(control.stat().st_mode & 0o777,0o700)
+
+    def test_ssh_control_dir_symlink_is_refused(self):
+        control=Path('/tmp/oursteps-ssh-424243')
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                control.symlink_to(Path(tmp),target_is_directory=True)
+                with patch('oursteps.deployment.os.getuid',return_value=424243):
+                    with self.assertRaisesRegex(RuntimeError,'symlink'):
+                        ssh_argv('owner@nas.example')
+            finally:
+                if control.is_symlink(): control.unlink()
 
     def test_missing_invalid_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

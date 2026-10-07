@@ -48,5 +48,29 @@ def deployment():
     return host, project
 
 
+def ssh_argv(host=None):
+    """Reusable safe SSH argv for Mac-side orchestration."""
+    host = host or deployment()[0]
+    # macOS has a short AF_UNIX path limit; keep the private control
+    # socket directory short rather than placing it deep under the home folder.
+    control_dir = Path('/tmp')/('oursteps-ssh-%s'%os.getuid())
+    if control_dir.is_symlink():
+        raise RuntimeError('SSH control directory must not be a symlink')
+    control_dir.mkdir(parents=True, exist_ok=True)
+    stat=control_dir.stat()
+    if stat.st_uid!=os.getuid():
+        raise RuntimeError('SSH control directory owner mismatch')
+    control_dir.chmod(0o700)
+    if control_dir.stat().st_mode & 0o077:
+        raise RuntimeError('SSH control directory permissions unsafe')
+    return [
+        'ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',
+        '-o','ControlMaster=auto','-o','ControlPersist=300',
+        '-o','ControlPath='+str(control_dir/'oursteps-%C'),
+        '-o','ServerAliveInterval=15','-o','ServerAliveCountMax=2',
+        host,
+    ]
+
+
 def remote_python(*args):
     return 'cd ' + shlex.quote(deployment()[1]) + ' && python3 ' + shlex.join(args)

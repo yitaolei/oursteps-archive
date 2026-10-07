@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from oursteps.deployment import deployment
+from oursteps.deployment import deployment, ssh_argv
 
 REMOTE = r'''import fcntl,json,os,sys
 from pathlib import Path
@@ -61,11 +61,63 @@ if busy:
 print(json.dumps({'busy':busy,'kind':kind,'pid':pid,'started_at':started_at},separators=(',',':')))
 '''
 
+def _elapsed_seconds(value):
+    try:
+        day_parts=value.split('-',1)
+        days=int(day_parts[0]) if len(day_parts)==2 else 0
+        clock=day_parts[-1].split(':')
+        if len(clock)==2:
+            hours=0;minutes,seconds=map(int,clock)
+        elif len(clock)==3:
+            hours,minutes,seconds=map(int,clock)
+        else:
+            return None
+        return days*86400+hours*3600+minutes*60+seconds
+    except (TypeError,ValueError):
+        return None
+
+
+def local_pipeline():
+    """Detect the Mac-side orchestration tail after the NAS worker unlocks."""
+    try:
+        output=subprocess.check_output(
+            ['ps','-axo','pid=,etime=,command='],text=True,stderr=subprocess.DEVNULL)
+    except (OSError,subprocess.SubprocessError):
+        return None
+    for line in output.splitlines():
+        parts=line.strip().split(None,2)
+        if len(parts)!=3:
+            continue
+        pid_text,elapsed_text,command=parts
+        kind=None
+        if 'scripts/history_launcher.py backfill' in command:
+            kind='historical_backfill'
+        elif 'scripts/history_launcher.py guide-discover' in command:
+            kind='guide_discovery'
+        elif 'scripts/update_now.py --now' in command:
+            kind='incremental_sync'
+        elif 'scripts/publish_public.py' in command and command.lstrip().startswith('ssh '):
+            kind='manual'
+        if kind is None:
+            continue
+        try:
+            pid=int(pid_text)
+        except ValueError:
+            continue
+        elapsed=_elapsed_seconds(elapsed_text)
+        return {'busy':True,'kind':kind,'pid':pid,
+                'started_at':int(time.time()-elapsed) if elapsed is not None else None}
+    return None
+
+
 def probe():
+    local=local_pipeline()
+    if local is not None:
+        return local
     host, remote = deployment()
     cmd = 'python3 - ' + shlex.quote(remote)
     result = subprocess.run(
-        ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,cmd],
+        ssh_argv(host)+[cmd],
         input=REMOTE,text=True,capture_output=True,timeout=20,
     )
     if result.returncode:

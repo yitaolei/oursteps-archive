@@ -13,21 +13,30 @@ sys.path[:0]=[str(ROOT),str(ROOT/'.deps')]
 from oursteps.parser import directory_url, thread_url
 from oursteps.sync import dated_listing, sydney_today
 
-MAX_CANDIDATES=20
+MAX_CANDIDATES=80
 
-def candidates(historical=False):
+def candidates(historical=False,limit=20):
     if sys.platform=='darwin':
         raise RuntimeError('Browser fallback candidates must run on NAS')
+    if type(limit) is not int or not 1<=limit<=MAX_CANDIDATES:
+        raise ValueError('candidate limit must be 1..%s'%MAX_CANDIDATES)
     db_path=ROOT/'data/archive.sqlite3'
     db=sqlite3.connect('file:'+str(db_path)+'?mode=ro',uri=True)
     db.row_factory=sqlite3.Row
     try:
         if historical:
+            # Browser recovery is an alternate transport for a fresh JS challenge,
+            # so it may run before urllib retry_at. The launcher de-duplicates URLs
+            # within the current pipeline; the next scheduler run is the next retry.
             rows=db.execute(
-                "SELECT tid,page FROM jobs WHERE state='retry_later' "
-                "AND error='retry_later:incomplete_html' "
-                "ORDER BY attempts ASC,retry_at ASC,tid DESC,page ASC LIMIT ?",
-                (MAX_CANDIDATES,)).fetchall()
+                "SELECT j.tid,j.page FROM jobs j "
+                "JOIN inventory i ON i.tid=j.tid "
+                "JOIN threads t ON t.tid=j.tid "
+                "WHERE j.state='retry_later' "
+                "AND j.error='retry_later:incomplete_html' "
+                "ORDER BY CASE WHEN t.status='partial' THEN 0 ELSE 1 END,"
+                "j.attempts ASC,j.retry_at ASC,j.tid DESC,j.page ASC LIMIT ?",
+                (limit,)).fetchall()
             return [thread_url(row['tid'],row['page']) for row in rows]
         url=directory_url()
         snap=db.execute(
@@ -46,7 +55,7 @@ def candidates(historical=False):
                 (row['tid'],)).fetchone()
             if known is None or not known['created_at_raw']:
                 result.append(thread_url(row['tid']))
-            if len(result)>=MAX_CANDIDATES:
+            if len(result)>=limit:
                 break
         return result
     finally:
@@ -55,5 +64,6 @@ def candidates(historical=False):
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--historical',action='store_true')
+    p.add_argument('--limit',type=int,default=20)
     a=p.parse_args()
-    print(json.dumps({'urls':candidates(a.historical)},separators=(',',':')))
+    print(json.dumps({'urls':candidates(a.historical,a.limit)},separators=(',',':')))

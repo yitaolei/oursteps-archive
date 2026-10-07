@@ -13,7 +13,7 @@ sys.path.insert(0,str(ROOT))
 from oursteps.auth import STATE, security_check, session_digest
 from oursteps.auth_verify import identity
 from oursteps.config import UID
-from oursteps.deployment import deployment, remote_python
+from oursteps.deployment import deployment, remote_python, ssh_argv
 from oursteps.fetch import validate_url
 from oursteps.parser import ParseError, parse_thread, query, soup_of, thread_url
 from oursteps.fetch import AGENT
@@ -49,6 +49,12 @@ def page_content(page,url,response):
             current=urlsplit(page.url)
             if current.scheme!='https' or current.netloc!='www.oursteps.com.au':
                 raise RuntimeError('browser_fallback_off_origin_navigation')
+            expected_q,current_q=query(url),query(page.url)
+            if (current.path!='/bbs/forum.php'
+                    or current_q.get('mod')!='viewthread'
+                    or current_q.get('tid')!=expected_q.get('tid')
+                    or current_q.get('page','1')!=expected_q.get('page','1')):
+                raise RuntimeError('browser_fallback_navigation_identity_mismatch')
             content=page.content().encode('utf-8')
             soup=soup_of(content)
             if identity(soup):
@@ -70,8 +76,7 @@ def install_candidate(saved,cookies):
         origins=[],uid=UID,verified_at=time.time())
     host,_=deployment()
     check=run_group(
-        ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
-         remote_python('scripts/verify_auth.py','--candidate')],
+        ssh_argv(host)+[remote_python('scripts/verify_auth.py','--candidate')],
         input=json.dumps(candidate),text=True,timeout=120)
     if check.returncode:
         detail=(check.stderr or check.stdout).strip().splitlines()[-1:] or ['unknown']
@@ -83,8 +88,7 @@ def install_candidate(saved,cookies):
 def import_snapshot(url,content):
     host,_=deployment()
     run=run_group(
-        ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
-         remote_python('scripts/import_browser_snapshot.py','--url',url)],
+        ssh_argv(host)+[remote_python('scripts/import_browser_snapshot.py','--url',url)],
         input=content,text=False,timeout=60)
     if run.returncode:
         detail=(run.stderr or run.stdout).decode('utf-8','replace').strip().splitlines()[-1:] or ['unknown']
@@ -97,8 +101,7 @@ def build_previews(tids):
         return
     host,_=deployment()
     run=run_group(
-        ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',host,
-         remote_python('archive.py','build-preview','--tids',*[str(tid) for tid in tids])],
+        ssh_argv(host)+[remote_python('archive.py','build-preview','--tids',*[str(tid) for tid in tids])],
         text=True,timeout=300)
     if run.returncode:
         detail=(run.stderr or run.stdout).strip().splitlines()[-1:] or ['unknown']
@@ -112,7 +115,7 @@ def main():
     urls=list(dict.fromkeys(canonical_thread(value) for value in sys.argv[1:]))
     saved=saved_session()
     from playwright.sync_api import sync_playwright, Error
-    resolved=[];failures=[]
+    resolved=[];failures=[];stop_reason=None;handoff_error=None
     with sync_playwright() as p:
         browser=p.chromium.launch(channel='chrome',headless=True)
         try:
@@ -130,7 +133,14 @@ def main():
                     resolved.append({'url':url,'snapshot_id':imported['snapshot_id'],
                                      'thread_status':imported.get('thread_status')})
                 except Exception as exc:
-                    failures.append({'url':url,'error':type(exc).__name__+':'+str(exc)[:200]})
+                    detail=type(exc).__name__+':'+str(exc)[:200]
+                    failures.append({'url':url,'error':detail})
+                    text=str(exc).lower()
+                    if ('manual_required:' in text
+                            or 'off_origin_navigation' in text
+                            or 'navigation_identity_mismatch' in text):
+                        stop_reason=detail
+                        break
                 if index+1<len(urls):
                     page.wait_for_timeout(2500)
             complete_tids=[
@@ -138,11 +148,19 @@ def main():
                 if item.get('thread_status')=='complete'
             ]
             build_previews(complete_tids)
-            install_candidate(saved,context.cookies())
-            print(json.dumps({'status':'resolved' if resolved else 'unresolved',
-                              'count':len(resolved),'failed':len(failures),
-                              'previewed':len(set(complete_tids)),
-                              'items':resolved,'failures':failures},separators=(',',':')))
+            if stop_reason is None:
+                try:
+                    install_candidate(saved,context.cookies())
+                except (subprocess.TimeoutExpired,RuntimeError) as exc:
+                    handoff_error=type(exc).__name__+':'+str(exc)[:200]
+            result={'status':'stopped' if stop_reason else ('resolved' if resolved else 'unresolved'),
+                    'count':len(resolved),'failed':len(failures),
+                    'previewed':len(set(complete_tids)),
+                    'stop_reason':stop_reason,'handoff_error':handoff_error,
+                    'items':resolved,'failures':failures}
+            print(json.dumps(result,separators=(',',':')))
+            if stop_reason or handoff_error:
+                raise SystemExit(2)
         finally:
             browser.close()
 
