@@ -120,6 +120,10 @@ def bootstrap(interactive=None):
                     except (ValueError,IndexError):raise VerificationIssue('retry_later','nas_verification_transport',True,retry_after=60)
                     raise VerificationIssue(failure.get('category','unexpected_layout'),failure.get('reason','nas_verification_failed'),failure.get('category')=='retry_later',60)
                 result=json.loads(check.stdout.strip().splitlines()[-1])
+                # The NAS verifier installs the candidate on the NAS. Persist the
+                # same verified session beside this controller too; when ROOT is
+                # a local APFS control-plane this avoids any later SMB dependency.
+                atomic_write(STATE,json.dumps(candidate,ensure_ascii=False,separators=(',',':')).encode())
                 atomic_write(status_path,json.dumps(dict(category='success',at=time.time(),retry_at=0,attempts=0,session_reused=session_reused,uid=UID,session_sha256=session_digest(candidate))).encode())
                 print(json.dumps(result,ensure_ascii=False),flush=True)
             finally:browser.close()

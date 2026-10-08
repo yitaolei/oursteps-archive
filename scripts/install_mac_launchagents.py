@@ -9,11 +9,18 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 LABEL_PREFIX = "local.oursteps."
 BOOTSTRAP_SOURCE = ROOT / "scripts/mac_launch_project.sh"
 BOOTSTRAP_TARGET = Path.home() / "Library/Application Support/OurSteps/launch_project.sh"
+CONTROL_TARGET = Path.home() / "Library/Application Support/OurSteps/control-plane"
+CONTROL_LABELS = {
+    "local.oursteps.incremental-sync",
+    "local.oursteps.guide-discovery",
+    "local.oursteps.historical-backfill",
+}
 LAUNCH_DIR = Path.home() / "Library/LaunchAgents"
 LOG_DIR = Path.home() / "Library/Logs"
 
@@ -58,7 +65,7 @@ def specs():
             "ProcessType": "Background",
         },
         "local.oursteps.incremental-sync": {
-            "ProgramArguments": [wrapper, "plain", "scripts/update_now.py", "--now"],
+            "ProgramArguments": [wrapper, "local-clean-nas-env", "scripts/update_now.py", "--now"],
             "StartCalendarInterval": calendar(range(6, 23, 2)),
             "RunAtLoad": False,
             "StandardOutPath": str(LOG_DIR / "oursteps-update-launchd.log"),
@@ -67,7 +74,7 @@ def specs():
             "ProcessType": "Background",
         },
         "local.oursteps.guide-discovery": {
-            "ProgramArguments": [wrapper, "clean-nas-env", "scripts/history_launcher.py",
+            "ProgramArguments": [wrapper, "local-clean-nas-env", "scripts/history_launcher.py",
                                  "guide-discover", "--max-pages", "25", "--max-minutes", "20"],
             "StartCalendarInterval": {"Hour": 3, "Minute": 15},
             "RunAtLoad": False,
@@ -78,7 +85,7 @@ def specs():
             "Nice": 10,
         },
         "local.oursteps.historical-backfill": {
-            "ProgramArguments": [wrapper, "clean-nas-env", "scripts/history_launcher.py",
+            "ProgramArguments": [wrapper, "local-clean-nas-env", "scripts/history_launcher.py",
                                  "backfill", "--best-effort", "--now",
                                  "--max-threads", "120", "--max-minutes", "45"],
             "StartCalendarInterval": calendar(range(7, 22, 2)),
@@ -92,10 +99,51 @@ def specs():
     }
 
 
+def sync_control_plane():
+    """Stage a small Mac controller bundle; live SQLite/data remain NAS-only."""
+    parent = CONTROL_TARGET.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".control-plane-", dir=parent))
+    old = CONTROL_TARGET.with_name("control-plane.previous")
+    try:
+        for name in ("archive.py", "requirements-auth.txt", "config.local.json"):
+            source = ROOT / name
+            if not source.is_file():
+                raise FileNotFoundError(source)
+            shutil.copy2(source, stage / name)
+        for name in ("oursteps", "scripts", ".deps", ".secrets"):
+            source = ROOT / name
+            if not source.is_dir():
+                raise FileNotFoundError(source)
+            shutil.copytree(source, stage / name)
+        stage.chmod(0o700)
+        (stage / "config.local.json").chmod(0o600)
+        (stage / ".secrets").chmod(0o700)
+        for item in (stage / ".secrets").iterdir():
+            if item.is_file():
+                item.chmod(0o600)
+        if old.exists():
+            shutil.rmtree(old)
+        if CONTROL_TARGET.exists():
+            CONTROL_TARGET.rename(old)
+        stage.rename(CONTROL_TARGET)
+        if old.exists():
+            shutil.rmtree(old)
+    except Exception:
+        if stage.exists():
+            shutil.rmtree(stage)
+        if not CONTROL_TARGET.exists() and old.exists():
+            old.rename(CONTROL_TARGET)
+        raise
+    print(f"synced control plane to {CONTROL_TARGET}")
+
+
 def install(labels=None):
     if sys.platform != "darwin":
         raise SystemExit("Run on the Mac that owns the OurSteps schedules.")
     labels = labels or list(specs())
+    if CONTROL_LABELS.intersection(labels):
+        sync_control_plane()
     BOOTSTRAP_TARGET.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(BOOTSTRAP_SOURCE, BOOTSTRAP_TARGET)
     BOOTSTRAP_TARGET.chmod(0o700)

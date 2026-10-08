@@ -81,6 +81,7 @@ def install_candidate(saved,cookies):
     if check.returncode:
         detail=(check.stderr or check.stdout).strip().splitlines()[-1:] or ['unknown']
         raise RuntimeError('browser_session_handoff_failed:'+detail[0][:200])
+    atomic_write(STATE,json.dumps(candidate,ensure_ascii=False,separators=(',',':')).encode())
     atomic_write(ROOT/'data/auth-status.json',json.dumps(dict(
         category='success',at=time.time(),retry_at=0,attempts=0,session_reused=True,
         uid=UID,session_sha256=session_digest(candidate))).encode())

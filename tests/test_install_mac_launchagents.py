@@ -32,6 +32,17 @@ class MacLaunchAgentInstallerTests(unittest.TestCase):
             serialized = repr(config)
             self.assertNotIn("/Volumes/Newhome/docker/oursteps-archive", serialized)
 
+
+    def test_network_orchestrators_use_local_control_plane(self):
+        specs = module.specs()
+        for label in module.CONTROL_LABELS:
+            args = specs[label]["ProgramArguments"]
+            self.assertEqual(args[1], "local-clean-nas-env")
+        self.assertEqual(
+            module.CONTROL_TARGET,
+            Path.home() / "Library/Application Support/OurSteps/control-plane",
+        )
+
     def test_current_production_schedules_are_preserved(self):
         specs = module.specs()
         inc = specs["local.oursteps.incremental-sync"]["StartCalendarInterval"]
@@ -50,6 +61,8 @@ class MacLaunchAgentInstallerTests(unittest.TestCase):
         self.assertIn('[[ -d "$candidate/.git"', text)
         self.assertIn('mount volume "smb://DS923SOPAC.local/Newhome"', text)
         self.assertIn("/tmp/oursteps-smb-remount.lock", text)
+        self.assertIn("local-clean-nas-env", text)
+        self.assertIn("Library/Application Support/OurSteps/control-plane", text)
 
 
 if __name__ == "__main__":
