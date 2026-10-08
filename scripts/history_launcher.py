@@ -12,6 +12,8 @@ if a.best_effort and a.mode!='backfill':p.error('--best-effort requires backfill
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from oursteps.deployment import deployment, remote_python, ssh_argv
+from scripts.process_utils import install_signal_cleanup, run_group
+install_signal_cleanup()
 host,remote=deployment()
 if a.check:
  assert (ROOT/'scripts/history_worker.py').is_file()
@@ -21,7 +23,14 @@ if a.mode=='status':
 if a.mode!='status' and not (a.mode in ('discover','fallback') and (ROOT/'.secrets/session.json').exists()):
  runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
  if not runtime.exists():raise SystemExit('Run Authenticate OurSteps.command once to install the authentication runtime')
- result=subprocess.run([str(runtime),str(ROOT/'archive.py'),'auth'],stdin=subprocess.DEVNULL)
+ try:
+  result=run_group([str(runtime),str(ROOT/'archive.py'),'auth'],
+                   stdin=subprocess.DEVNULL,text=True,timeout=180)
+ except subprocess.TimeoutExpired:
+  print('Historical authentication timed out after 180 seconds; saved session preserved.',file=sys.stderr)
+  raise SystemExit(75)
+ if result.stdout:print(result.stdout,end='')
+ if result.stderr:print(result.stderr,end='',file=sys.stderr)
  if result.returncode:raise SystemExit(result.returncode)
 command='cd '+shlex.quote(remote)+' && python3 scripts/history_worker.py '+a.mode+(' --now' if a.now else '')+(' --best-effort' if a.best_effort else '')
 if a.max_pages is not None:command+=' --max-pages '+str(a.max_pages)
