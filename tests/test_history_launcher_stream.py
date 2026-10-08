@@ -22,9 +22,10 @@ class LauncherStreamTests(unittest.TestCase):
             runtime_checks.append(str(path))
             # Auth runtime exists initially; it may be unavailable after worker.
             return True if len(runtime_checks)==1 else runtime_available
+        def auth_run_group(argv,**kwargs):
+            events.append(('auth',argv))
+            return subprocess.CompletedProcess(argv,0,stdout='',stderr='')
         def run(argv,**kwargs):
-            if 'auth' in argv:
-                events.append(('auth',argv));return subprocess.CompletedProcess(argv,0)
             if 'browser_fallback_candidates.py' in argv[-1]:
                 events.append(('candidates',argv))
                 return subprocess.CompletedProcess(argv,candidate_code,stdout=json.dumps({'urls':urls}) if candidate_output is None else candidate_output)
@@ -41,7 +42,7 @@ class LauncherStreamTests(unittest.TestCase):
             if 'publish_public.py' in argv[-1]:
                 events.append(('publish',argv));return 0
             raise AssertionError('Unexpected subprocess: '+repr(argv))
-        with patch.object(sys,'argv',['history_launcher.py',mode]),patch('pathlib.Path.exists',exists),patch('subprocess.run',side_effect=run),patch('subprocess.call',side_effect=call),patch('oursteps.deployment.ssh_argv',return_value=['ssh-mock']),contextlib.redirect_stderr(io.StringIO()):
+        with patch.object(sys,'argv',['history_launcher.py',mode]),patch('pathlib.Path.exists',exists),patch('scripts.process_utils.run_group',side_effect=auth_run_group),patch('subprocess.run',side_effect=run),patch('subprocess.call',side_effect=call),patch('oursteps.deployment.ssh_argv',return_value=['ssh-mock']),contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as stopped:
                 runpy.run_path(str(ROOT/'scripts/history_launcher.py'),run_name='__main__')
         return stopped.exception.code,events
