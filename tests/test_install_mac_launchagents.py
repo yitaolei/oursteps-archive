@@ -35,6 +35,13 @@ class MacLaunchAgentInstallerTests(unittest.TestCase):
 
     def test_network_orchestrators_use_local_control_plane(self):
         specs = module.specs()
+        self.assertEqual(module.CONTROL_LABELS, {
+            "local.oursteps.worker-status",
+            "local.oursteps.control-actions",
+            "local.oursteps.incremental-sync",
+            "local.oursteps.guide-discovery",
+            "local.oursteps.historical-backfill",
+        })
         for label in module.CONTROL_LABELS:
             args = specs[label]["ProgramArguments"]
             self.assertEqual(args[1], "local-clean-nas-env")

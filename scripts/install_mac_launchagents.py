@@ -17,6 +17,8 @@ BOOTSTRAP_SOURCE = ROOT / "scripts/mac_launch_project.sh"
 BOOTSTRAP_TARGET = Path.home() / "Library/Application Support/OurSteps/launch_project.sh"
 CONTROL_TARGET = Path.home() / "Library/Application Support/OurSteps/control-plane"
 CONTROL_LABELS = {
+    "local.oursteps.worker-status",
+    "local.oursteps.control-actions",
     "local.oursteps.incremental-sync",
     "local.oursteps.guide-discovery",
     "local.oursteps.historical-backfill",
@@ -47,7 +49,7 @@ def specs():
             "ThrottleInterval": 30,
         },
         "local.oursteps.worker-status": {
-            "ProgramArguments": [wrapper, "plain", "scripts/worker_status_snapshot.py"],
+            "ProgramArguments": [wrapper, "local-clean-nas-env", "scripts/worker_status_snapshot.py"],
             "StartInterval": 30,
             "RunAtLoad": True,
             "StandardOutPath": str(LOG_DIR / "oursteps-worker-status.log"),
@@ -56,7 +58,7 @@ def specs():
             "ProcessType": "Background",
         },
         "local.oursteps.control-actions": {
-            "ProgramArguments": [wrapper, "plain", "scripts/control_action_runner.py"],
+            "ProgramArguments": [wrapper, "local-clean-nas-env", "scripts/control_action_runner.py"],
             "StartInterval": 60,
             "RunAtLoad": False,
             "StandardOutPath": str(LOG_DIR / "oursteps-control-actions.log"),

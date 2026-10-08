@@ -55,6 +55,13 @@ class LocalControlPlaneTests(unittest.TestCase):
             self.assertEqual((target/'.secrets/session.json').stat().st_mode & 0o777,0o600)
             self.assertEqual((target/'config.local.json').stat().st_mode & 0o777,0o600)
 
+    def test_status_and_action_agents_run_from_local_control_plane(self):
+        specs=installer.specs()
+        for label in ("local.oursteps.worker-status","local.oursteps.control-actions"):
+            args=specs[label]["ProgramArguments"]
+            self.assertEqual(args[1],"local-clean-nas-env")
+            self.assertIn(label,installer.CONTROL_LABELS)
+
     def test_incremental_creates_nested_local_log_directories(self):
         text=(ROOT/'scripts/update_now.py').read_text()
         self.assertIn("auth_log.parent.mkdir(parents=True,exist_ok=True)",text)
