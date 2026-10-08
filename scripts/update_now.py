@@ -43,7 +43,7 @@ a=p.parse_args()
 runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
 if not runtime.exists(): raise SystemExit('Run Authenticate OurSteps.command once to install the local runtime')
 auth_log=ROOT/'data/logs/auth-launcher.log'
-auth_log.parent.mkdir(exist_ok=True)
+auth_log.parent.mkdir(parents=True,exist_ok=True)
 auth_status=ROOT/'data/auth-status.json'
 session_state=ROOT/'.secrets/session.json'
 AUTH_REUSE_SECONDS=15*60
@@ -113,7 +113,7 @@ if a.nightly:
     dates=[(today-dt.timedelta(days=1)).isoformat(),today.isoformat()]
 code=0
 MAX_BROWSER_BATCHES=2
-log=ROOT/'data/logs/update-launcher.log';log.parent.mkdir(exist_ok=True)
+log=ROOT/'data/logs/update-launcher.log';log.parent.mkdir(parents=True,exist_ok=True)
 
 def remote_sync(day):
     command=remote_python('archive.py','sync-today')

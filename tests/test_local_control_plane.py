@@ -55,6 +55,11 @@ class LocalControlPlaneTests(unittest.TestCase):
             self.assertEqual((target/'.secrets/session.json').stat().st_mode & 0o777,0o600)
             self.assertEqual((target/'config.local.json').stat().st_mode & 0o777,0o600)
 
+    def test_incremental_creates_nested_local_log_directories(self):
+        text=(ROOT/'scripts/update_now.py').read_text()
+        self.assertIn("auth_log.parent.mkdir(parents=True,exist_ok=True)",text)
+        self.assertIn("log.parent.mkdir(parents=True,exist_ok=True)",text)
+
     def test_browser_handoff_persists_verified_session_locally(self):
         from scripts import browser_fallback
         with tempfile.TemporaryDirectory() as tmp:
