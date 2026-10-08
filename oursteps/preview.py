@@ -895,6 +895,65 @@ def esc(x):
 
 
 # oursteps-lazy-search-v1
+def _search_text_for_tid(store, tid):
+    row=store.db.execute(
+        "SELECT tid,title,forum FROM threads WHERE tid=? AND status='complete'",
+        (tid,)
+    ).fetchone()
+    if row is None:
+        return None
+    parts=[str(row['title'] or ''),str(row['forum'] or '')]
+    for post in store.db.execute(
+        "SELECT body_text FROM posts WHERE tid=? AND author_uid=? "
+        "ORDER BY page,CAST(floor AS INTEGER),pid",
+        (tid,UID)
+    ):
+        if post['body_text']:
+            parts.append(str(post['body_text']))
+    return ' '.join(parts).lower()
+
+
+def _load_search_index(path):
+    try:
+        payload=json.loads(path.read_text(encoding='utf-8'))
+    except (OSError,ValueError,TypeError) as exc:
+        raise ValueError('incremental search cache missing or inconsistent') from exc
+    if (not isinstance(payload,dict)
+            or any(not isinstance(key,str) or not key.isdigit() or not isinstance(value,str)
+                   for key,value in payload.items())):
+        raise ValueError('incremental search cache missing or inconsistent')
+    return payload
+
+
+def _update_search_index(store,out,tids,expected,allow_full_fallback):
+    """Reuse the 39MB search cache; query body text only for changed TIDs."""
+    path=out/'search-index.json'
+    try:
+        payload=_load_search_index(path)
+        cached={int(key) for key in payload}
+        selected={int(tid) for tid in tids}
+        # New/removed selected TIDs are expected. Any unrelated cache drift is not.
+        if (cached ^ set(expected)) - selected:
+            raise ValueError('incremental search cache missing or inconsistent')
+        for tid in selected:
+            key=str(tid)
+            text=_search_text_for_tid(store,tid)
+            if text is None:
+                payload.pop(key,None)
+            else:
+                payload[key]=text
+        if {int(key) for key in payload}!=set(expected):
+            raise ValueError('incremental search cache missing or inconsistent')
+        atomic_write(
+            path,
+            json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+        )
+    except ValueError:
+        if not allow_full_fallback:
+            raise
+        _write_search_index(store,out)
+
+
 def _write_search_index(store, out):
     """Write full-text search data separately from the homepage."""
     parts = {}
@@ -1410,7 +1469,9 @@ def build_incremental(store,tids,*,allow_full_fallback=True,out=None):
         READER_JS.encode()
     )
 
-    _write_search_index(store, out)
+    _update_search_index(
+        store,out,tids,expected,allow_full_fallback
+    )
 
     return dict(
         articles=total,

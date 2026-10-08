@@ -35,7 +35,7 @@ class PreviewBatchTests(unittest.TestCase):
         for tids in ([self.tids[0]],self.tids[:2]):
             self.change(tids)
             untouched=self.out/('%s.html'%self.tids[2]);stamp=untouched.stat().st_mtime_ns;old=untouched.read_bytes()
-            with patch.object(preview,'build',side_effect=AssertionError('full rebuild forbidden')):
+            with patch.object(preview,'build',side_effect=AssertionError('full rebuild forbidden')),                  patch.object(preview,'_write_search_index',side_effect=AssertionError('full search rebuild forbidden')):
                 result=batch.build_batch(self.store,tids)
             self.assertEqual(result['rendered_articles'],len(tids));self.assertFalse(result['full_rebuild'])
             self.assertEqual(untouched.stat().st_mtime_ns,stamp);self.assertEqual(untouched.read_bytes(),old)
@@ -44,6 +44,31 @@ class PreviewBatchTests(unittest.TestCase):
             preview.build(self.store)
             self.assertEqual(rendered,{t:(self.out/('%s.html'%t)).read_bytes() for t in tids})
             self.assertEqual(search,json.loads((self.out/'search-index.json').read_text()))
+    def test_search_cache_selected_delta_updates_without_full_scan(self):
+        path=self.out/'search-index.json'
+        payload=json.loads(path.read_text())
+        selected=self.tids[0]
+        payload.pop(str(selected))
+        path.write_text(json.dumps(payload))
+        self.change([selected])
+        with patch.object(preview,'_write_search_index',side_effect=AssertionError('full search rebuild forbidden')):
+            batch.build_batch(self.store,[selected])
+        updated=json.loads(path.read_text())
+        self.assertIn(str(selected),updated)
+        incremental=dict(updated)
+        preview.build(self.store)
+        self.assertEqual(incremental,json.loads(path.read_text()))
+
+    def test_search_cache_unrelated_drift_fails_closed(self):
+        path=self.out/'search-index.json'
+        payload=json.loads(path.read_text())
+        payload.pop(str(self.tids[2]))
+        path.write_text(json.dumps(payload))
+        before=self.contents()
+        with patch.object(preview,'_write_search_index',side_effect=AssertionError('full search rebuild forbidden')),              self.assertRaises(ValueError):
+            batch.build_batch(self.store,[self.tids[0]])
+        self.assertEqual(before,self.contents())
+
     def test_invalid_nonexistent_incomplete_no_writes(self):
         before=self.contents()
         for tids in ([0],[-1],['bad'],[True],[999],[self.tids[0],999]):

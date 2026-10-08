@@ -42,9 +42,12 @@ def sync_dir(path):
 def stage_batch(store,tids,destination):
     """Also usable for an isolated NAS benchmark with a read-only archive connection."""
     destination.mkdir()
-    index=store.root/'preview/index.html'
-    if not index.is_file():raise ValueError('preview index missing; full rebuild refused')
-    shutil.copyfile(index,destination/'index.html')
+    live=store.root/'preview'
+    for name in ('index.html','search-index.json'):
+        source=live/name
+        if not source.is_file():
+            raise ValueError('preview '+name+' missing; full rebuild refused')
+        shutil.copyfile(source,destination/name)
     return build_incremental(store,tids,allow_full_fallback=False,out=destination)
 
 
