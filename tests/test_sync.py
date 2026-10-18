@@ -144,6 +144,32 @@ class DailyTests(unittest.TestCase):
             self.assertEqual(result['failures'],['incomplete_html'])
             self.assertEqual(result['browser_fallback_url'],thread_url(tid))
 
+    def test_repeated_js_challenge_deferred_but_other_today_articles_sync(self):
+        from oursteps.auth_verify import VerificationIssue
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(temp);self.addCleanup(store.db.close)
+            blocked,good=1902001,1902002
+            challenge=b'<script>challenge()</script>'
+            url=thread_url(blocked)
+            store.snapshot(url,challenge+b'//1',mode='authenticated_private')
+            store.snapshot(url,challenge+b'//2',mode='authenticated_private')
+            pages={directory_url():listing([blocked,good]),thread_url(good):article(good,'2026-9-8',601)}
+            class Fake:
+                mode='authenticated_private'
+                def __init__(self,*a,**k):pass
+                def get(self,target):
+                    if target==url:raise VerificationIssue('retry_later','incomplete_html',True)
+                    return store.snapshot(target,pages[target],mode=self.mode)
+                def wait_window(self):pass
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
+                result=sync(store,now=True)
+            self.assertEqual(result['status'],'success',result)
+            self.assertEqual(result['deferred_threads'],[blocked])
+            self.assertFalse(result['discovery_complete'])
+            self.assertEqual(result['newly_archived'],1)
+            self.assertEqual(store.db.execute('SELECT state FROM jobs WHERE tid=?',(blocked,)).fetchone()[0],'retry_later')
+            self.assertEqual(store.db.execute('PRAGMA foreign_key_check').fetchall(),[])
+
     def test_incomplete_cached_thread_is_refetched(self):
         with tempfile.TemporaryDirectory() as temp:
             store=Store(temp);self.addCleanup(store.db.close)

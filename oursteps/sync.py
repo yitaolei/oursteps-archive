@@ -45,6 +45,24 @@ def dated_listing(content,url,today):
         record.update(rows[record['tid']])
     return parsed
 
+def defer_repeated_script_challenge(store,tid,url):
+    """Quarantine a repeatedly challenged URL without suppressing general fetch failures.
+
+    Keep it in the retry queue and report it; never parse or publish challenge HTML.
+    """
+    rows=store.db.execute('SELECT * FROM snapshots WHERE url=? ORDER BY id DESC LIMIT 2',(url,)).fetchall()
+    if len(rows)<2:
+        return False
+    for snap in rows:
+        raw=store.raw(snap).lower()
+        if snap['status']!=200 or not (0<len(raw)<10000 and b'<script' in raw and b'</html>' not in raw):
+            return False
+    with store.db:
+        store.db.execute("INSERT OR IGNORE INTO threads(tid,discovered_via) VALUES(?,'daily-challenge')",(tid,))
+        store.db.execute("INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,'thread',?,1)",(url,tid))
+        store.db.execute("UPDATE jobs SET state='retry_later',error='retry_later:incomplete_html_js_challenge',retry_at=? WHERE url=?",(time.time()+3600,url))
+    return True
+
 def sync(store,day=None,now=False):
     from .auth import identity
     from .cli import run
@@ -55,6 +73,7 @@ def sync(store,day=None,now=False):
         raise ValueError('historical_backfill_not_authorized')
     result=dict(date=day,status='success',discovered_today=0,already_archived=0,newly_archived=0,updated_metadata=0,failures=[])
     browser_fallback_url=None
+    deferred_threads=[]
     initially={r[0] for r in store.db.execute("SELECT tid FROM threads WHERE status='complete'")}
     existing_state=store.db.execute('SELECT * FROM discovery_state WHERE day=?',(day,)).fetchone()
     if existing_state and existing_state['state']=='auth_required':
@@ -110,7 +129,16 @@ def sync(store,day=None,now=False):
                     first_snap=store.latest(first_url)
                     if (first_snap is None or first_snap['status']!=200 or
                             b'</html>' not in store.raw(first_snap).lower()):
-                        first_snap=fetch.get(first_url)
+                        try:
+                            first_snap=fetch.get(first_url)
+                        except VerificationIssue as issue:
+                            if (issue.category=='retry_later' and issue.reason=='incomplete_html'
+                                    and len(deferred_threads)<3
+                                    and defer_repeated_script_challenge(store,tid,first_url)):
+                                deferred_threads.append(tid)
+                                browser_fallback_url=None
+                                continue
+                            raise
                     try:
                         first=parse_thread(store.raw(first_snap),first_url)
                     except Busy:
@@ -139,7 +167,7 @@ def sync(store,day=None,now=False):
                 if first is not None:
                     store.save_page(thread_url(tid),first,first_snap)
             if older or not page['next_url']:
-                discovery_complete=True;break
+                discovery_complete=not deferred_threads;break
             url=page['next_url']
         with store.db: store.db.execute("UPDATE discovery_state SET state='success',error=NULL WHERE day=?",(day,))
         halt=store.setting('halt')
@@ -184,6 +212,8 @@ def sync(store,day=None,now=False):
         if browser_fallback_url and str(e)=='missing_title_or_breadcrumb':
             result['browser_fallback_url']=browser_fallback_url
     result['discovery_complete']=discovery_complete
+    if deferred_threads:
+        result['deferred_threads']=deferred_threads
     return finish(store,result,day,initially)
 
 def finish(store,result,day,initially):
