@@ -131,6 +131,17 @@ class StoreStreamTests(unittest.TestCase):
             self.assertEqual(candidates.candidates(historical=True,limit=80),[URLS[1]])
         self.assertEqual(self.store.setting('historical_preview_pending_tids'),f'[{TID}]')
 
+    def test_incremental_browser_import_creates_missing_parent_before_posts(self):
+        with self.store.db:
+            self.store.db.execute('DELETE FROM jobs')
+            self.store.db.execute('DELETE FROM inventory')
+            self.store.db.execute('DELETE FROM threads')
+        result=importer.save_snapshot(self.store,URLS[0],content(1))
+        self.assertEqual(result['status'],'imported')
+        self.assertEqual(self.store.db.execute('SELECT discovered_via FROM threads WHERE tid=?',(TID,)).fetchone()[0],'browser-fallback')
+        self.assertEqual(self.store.db.execute('SELECT state FROM jobs WHERE url=?',(URLS[0],)).fetchone()[0],'success')
+        self.assertEqual(self.store.db.execute('PRAGMA foreign_key_check').fetchall(),[])
+
     def test_legacy_single_page_import(self):
         with patch.object(sys,'platform','linux'):
             result=importer.import_snapshot(self.root,URLS[0],content(1))

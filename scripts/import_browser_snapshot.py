@@ -120,6 +120,12 @@ def save_snapshot(store,url,content,historical_pending=False):
             pending=_historical_preview_pending(store)
             pending.add(tid)
             _save_historical_preview_pending(store,pending)
+    if not historical_pending:
+        # Incremental browser fallback may encounter a new thread before daily
+        # discovery has committed its parent record. Preserve SQLite FKs.
+        with store.db:
+            store.db.execute("INSERT OR IGNORE INTO threads(tid,discovered_via) VALUES(?,'browser-fallback')",(tid,))
+            store.db.execute("INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,'thread',?,?)",(canonical,tid,parsed['page']))
     previous=getattr(store,'historical_mode',False)
     try:
         store.historical_mode=True
