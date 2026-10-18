@@ -1,3 +1,14 @@
+## 2026-10-19 08:35 AEDT — Incremental Sync incident follow-up
+
+- Morning Control Center action failed due to `incomplete_html`. The underlying Browser Fallback batch also failed 17 snapshot imports with SQLite foreign-key errors; one TID returned unverified page identity.
+- `778882b`: inserted missing thread and job parent records before incremental browser snapshot import, keeping foreign keys enabled; regression test added. Subsequent Browser Fallback imported 16/17 successfully, all 16 complete.
+- `76ffb5b`: repeatedly challenged, incomplete JavaScript-only thread pages can be deferred to a retry job without aborting the rest of today's incremental discovery. Failed pages are never treated as published articles; `discovery_complete` remains false, and `deferred_threads` is visible in `sync-summary.json`. Tests: 42 passed for sync and browser-stream suites.
+- 2026-10-19 08:00 scheduled incremental sync verified: launchd exit 0; sync `success`, 17 discovered, 17 already archived, no sync failures, publish success, full release count 13,964. **Not a full discovery pass**: `deferred_threads=[1904379]`, `discovery_complete=false`.
+- TID 1904379 title (user supplied): 继承母亲的澳洲联邦银行股票 要缴纳高额资本利得税吗？ The canonical and author-filter URLs both produced 200 responses containing only ~2.6–4.7 KB JavaScript challenges, not valid article HTML. Three private stored snapshots likewise lacked closing HTML; no `threads` or `jobs` row existed when checked at 07:45. Needs targeted authenticated/manual review and successful capture; DO NOT label this article complete or silently exclude it. No parser/WAL candidates deployed.
+- Open follow-up: check TID 1904379 in a normal authenticated browser; if real thread HTML is accessible, import through the validated archive pipeline and verify publication/healthcheck. Do not bypass identity and content checks.
+
+<!-- checkpoint-20260918-worker-collision-guard -->
+
 # OurSteps Archive Operations
 
 This is the operator-facing map for the production OurSteps Archive system. It records supported entry points, schedules, safety boundaries, and the staged control-center plan without exposing private deployment credentials.
