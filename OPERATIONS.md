@@ -1,3 +1,10 @@
+## 2026-10-19 08:47 AEDT — TID 1904379 successfully recovered
+- User confirmed TID 1904379 renders completely in Safari on Mac Studio and on phone. Historical automated requests sometimes received short JavaScript challenge bodies instead of article HTML, which explains the earlier deferred state; this was intermittent, not a permanently inaccessible article.
+- Read-only single-thread test with the existing production Chromium, saved cookies and user agent fetched 119,973 bytes of valid HTML: HTTP 200, expected title, verified account identity and postlist present. No identity bypass or content-check relaxation.
+- Existing `scripts/browser_fallback.py` then successfully imported that canonical URL: `attempted=1`, `imported=1`, `complete=1`, `failed=0`, snapshot `37418`, previewed 1, handoff success. Browser fallback completed with exit 0.
+- Manual normal publish followed: public healthcheck PASS for release `5f41bd45c1b6f6edd1bd7dec9862f3d55a6dd85c1a753efe5c76feae25d99dff`, 13,965 full articles and 4,423 recent-1y (both +1). No parser or WAL candidate deployed.
+- Follow-up improvement remains: evaluate bounded retry of valid cached/browser captures for intermittent JS challenges, preserving challenge/identity checks and `deferred_threads` for unresolved cases. Successful one-time recovery is not proof this class of failure can never recur.
+
 ## 2026-10-19 08:35 AEDT — Incremental Sync incident follow-up
 
 - Morning Control Center action failed due to `incomplete_html`. The underlying Browser Fallback batch also failed 17 snapshot imports with SQLite foreign-key errors; one TID returned unverified page identity.
