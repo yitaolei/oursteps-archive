@@ -17,7 +17,7 @@ from oursteps.config import UID
 from oursteps.deployment import deployment, remote_python, ssh_argv
 from oursteps.fetch import validate_url
 from oursteps.parser import ParseError, parse_thread, query, soup_of, thread_url
-from oursteps.fetch import AGENT
+from oursteps.fetch import AGENT, safe_denial_record
 from oursteps.store import atomic_write
 from scripts.browser_snapshot_stream import PROTOCOL, InfrastructureStop, StreamImporter
 from scripts.process_utils import install_signal_cleanup,run_group
@@ -146,6 +146,12 @@ def session_result(page,context,saved,urls,historical=False):
                         pass
                     except Error as exc:
                         raise InfrastructureStop('browser_navigation_failed:'+str(exc)) from exc
+                    if response is not None and response.status in (401,403,407,429):
+                        # Record only explicitly allowlisted metadata, not cookies,
+                        # response HTML, query tokens or user account information.
+                        headers=response.headers
+                        print('HTTP_DENIAL_DIAGNOSTIC '+json.dumps(safe_denial_record(
+                            response.status,url,headers,b''),sort_keys=True),file=sys.stderr,flush=True)
                     content=page_content(page,url,response)
                 finally:
                     navigation_seconds+=time.monotonic()-navigation_started

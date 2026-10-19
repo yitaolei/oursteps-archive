@@ -11,3 +11,9 @@ class DenialRecordTests(unittest.TestCase):
         self.assertNotIn('private',str(record))
         self.assertNotIn('secret',str(record))
         self.assertNotIn('sensitive',str(record))
+
+    def test_browser_fallback_diagnostic_is_allowlisted(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[1]/'scripts/browser_fallback.py').read_text()
+        self.assertIn('safe_denial_record(',source)
+        self.assertIn('response.status in (401,403,407,429)',source)
