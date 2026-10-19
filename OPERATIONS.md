@@ -1,3 +1,9 @@
+## 2026-10-20 08:10 AEDT — Historical halt status regression verified
+- Git checkpoints `9ded2f7` and `be23bad` separate a historical 403 safety halt from daily authentication reporting. A persisted historical halt now returns `status=halted`, `historical_halt_active=true`, leaves the safety stop unchanged and avoids additional network fetches when the halt is already known. Stale `auth_required` daily records no longer conceal the historical halt. Relevant offline suite: 51 tests passed.
+- Live scheduled incremental completed 08:10 with `Status: halted`, `historical_safety_halt:historical_global_auth_or_challenge`, `Public publish: success`, `ARCHIVE_PARTIAL_PUBLISHED: success`. LaunchAgent exit code 3 intentionally signals partial, not all-clear.
+- Publisher generated release `59f1055b99998adf9f278edd469608014eef463f2ac628a73e5a491c77d725b3`: 14,673 full, 4,427 recent-year; post-publish healthcheck PASS. Historical HTTP 403 remains blocked and has NOT been cleared.
+- Follow-up: separately examine NAS release staging/validation latency and the actual 403 access limitation, without retry storms or resetting the global halt. No concurrent archive tasks were interrupted.
+
 ## 2026-10-20 07:57 AEDT — Partial publish verified in production
 - Live operator-triggered Mac Studio Incremental Sync completed at 07:57 with `Public publish: success` and `ARCHIVE_PARTIAL_PUBLISHED: success`; scheduled worker exit status 3 correctly retains an incomplete discovery outcome. Historical HTTP 403 global halt and `auth_required` remain in force; no forbidden site retries or halt reset performed.
 - Verified NAS release `4c5542ae3baf0f1e946c75bbd450519e2f84cb242e60fca8ad4dc2ad188d9c88`: 14,673 full (+18 from 14,655) and 4,427 recent-year (+18 from 4,409); publisher post-publish healthcheck PASS. Prior accepted Complete articles were released despite unrelated blocked TIDs.
