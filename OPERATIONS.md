@@ -1,3 +1,10 @@
+## 2026-10-20 — HTTP 403 diagnostic investigation
+
+- Latest 18 historical Browser Stream batches: 5 explicitly stopped with HTTP 403, 13 did not. Multiple different TIDs were affected, so this is not demonstrably one broken article URL.
+- Read-only database inspection for TID 1801791: page 1 success; page 2 retry_later/incomplete_html; pages 3–6 pending. A prior page-2 extra/page URL returned HTTP 302, while the canonical thread has an HTTP 200 snapshot. A later browser fallback hit HTTP 403 on page 2 immediately. The exact 403 issuer/cause remains UNCONFIRMED.
+- `d89d9b7` and `cee6f3c` add safe metadata-only diagnostics to the HTTP fetcher and Chrome Browser Fallback, respectively. Only HTTP status, TID, page and allowlisted headers are emitted. Do not record cookies, response HTML, `_dsign` URLs or credentials. Relevant test suites passed 28 and 35 tests, respectively.
+- The HTTP 403 global halt remains active. No denied URL was retried during this investigation. Seek website operator approval or access clarification before resuming affected automated fetching.
+
 ## 2026-10-20 08:10 AEDT — Historical halt status regression verified
 - Git checkpoints `9ded2f7` and `be23bad` separate a historical 403 safety halt from daily authentication reporting. A persisted historical halt now returns `status=halted`, `historical_halt_active=true`, leaves the safety stop unchanged and avoids additional network fetches when the halt is already known. Stale `auth_required` daily records no longer conceal the historical halt. Relevant offline suite: 51 tests passed.
 - Live scheduled incremental completed 08:10 with `Status: halted`, `historical_safety_halt:historical_global_auth_or_challenge`, `Public publish: success`, `ARCHIVE_PARTIAL_PUBLISHED: success`. LaunchAgent exit code 3 intentionally signals partial, not all-clear.
