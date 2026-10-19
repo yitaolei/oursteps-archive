@@ -220,14 +220,23 @@ for day in dates:
         code=max(code,2)
         break
     show(summary)
-    code=max(code,result.returncode)
-    if result.returncode:
+    # Archive contents already verified as COMPLETE must be published even if
+    # another TID is incomplete or a global safety halt prevents more requests.
+    # Publishing is local NAS processing, not permission to fetch more pages.
+    partial=(result.returncode!=0 or summary['status']!='success' or bool(summary['failures'])
+             or not summary.get('discovery_complete',False))
+    publish=run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],
+        remote_python('scripts/publish_public.py')],text=True,timeout=300)
+    with log.open('a') as f:f.write(publish.stdout+publish.stderr)
+    print('Public publish: '+('success' if publish.returncode==0 else 'FAILED; private sync preserved; see update-launcher.log'),flush=True)
+    if publish.returncode:
+        code=max(code,publish.returncode,2)
         break
-    if summary['status']=='success' and not summary['failures']:
-        publish=run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],
-            remote_python('scripts/publish_public.py')],text=True,timeout=300)
-        with log.open('a') as f:f.write(publish.stdout+publish.stderr)
-        print('Public publish: '+('success' if publish.returncode==0 else 'FAILED; private sync preserved; see update-launcher.log'))
-        code=max(code,publish.returncode)
+    if partial:
+        print('ARCHIVE_PARTIAL_PUBLISHED: success; discovery incomplete; failed TIDs retained for review',flush=True)
+        # Keep the underlying problem visible. Action runner marks this PARTIAL.
+        code=max(code,3)
+    else:
+        code=max(code,0)
 
 sys.exit(code)

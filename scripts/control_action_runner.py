@@ -42,7 +42,11 @@ def main():
                 print('[%s %s] stdout\n%s' % (action,job['id'],run.stdout),end='' if run.stdout.endswith('\n') else '\n',flush=True)
             if run.stderr:
                 print('[%s %s] stderr\n%s' % (action,job['id'],run.stderr),end='' if run.stderr.endswith('\n') else '\n',file=sys.stderr,flush=True)
-            success=run.returncode==0;message='Completed successfully' if success else 'Action failed; inspect operator logs'
+            partial=(action=='incremental_sync' and run.returncode==3 and
+                     'ARCHIVE_PARTIAL_PUBLISHED: success' in (run.stdout or ''))
+            success=(run.returncode==0 or partial)
+            message=('Partial: verified articles published; discovery/retry still pending' if partial
+                     else 'Completed successfully' if success else 'Action failed; inspect operator logs')
         except subprocess.TimeoutExpired:
             success=False;message='Action timed out; inspect operator status before retrying'
         except Exception:
