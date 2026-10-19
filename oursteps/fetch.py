@@ -259,6 +259,18 @@ class Fetcher:
                 raise RateLimited(retry_after(response.headers.get('Retry-After')))
             if status in (404,410):
                 raise NotFound('http_%s' % status)
+            if status in (301,302,303,307,308):
+                # Never log Location; only whether its resolved target is the
+                # same article, a login route, or a different destination.
+                target=urljoin(url,response.headers.get('Location',''))
+                source_q,target_q=query(url),query(target)
+                kind=('same_thread' if source_q.get('tid') and source_q.get('tid')==target_q.get('tid')
+                      and target_q.get('mod')=='viewthread' else
+                      'login' if target_q.get('mod')=='logging' or target_q.get('action')=='login'
+                      else 'other')
+                logging.warning('HTTP_REDIRECT_DIAGNOSTIC %s',json.dumps(dict(
+                    status=status,tid=str(source_q.get('tid',''))[:15],
+                    page=str(source_q.get('page','1'))[:8],target_kind=kind),sort_keys=True))
             if status in (301,302,303,307,308) and getattr(self.store,'historical_mode',False):
                 target = urljoin(url,response.headers.get('Location',''))
                 source_q, target_q = query(url), query(target)
