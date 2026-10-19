@@ -141,6 +141,27 @@ def remote_candidates(seed):
     if seed not in urls: urls.insert(0,seed)
     return list(dict.fromkeys(urls))[:20]
 
+def identity_retry_urls(output, original_urls):
+    """At most one narrowly scoped recheck after a completed browser batch.
+
+    A failed batch, security/manual challenge or transport stop must not be retried.
+    """
+    try:
+        report=json.loads(output.strip().splitlines()[-1])
+    except (ValueError,IndexError,AttributeError):
+        return []
+    if not isinstance(report,dict) or report.get('stop_reason') or report.get('handoff_error') or report.get('handoff_status')!='success':
+        return []
+    allowed=set(original_urls)
+    urls=[]
+    for item in report.get('failures',[]):
+        if not isinstance(item,dict):return []
+        url=item.get('url')
+        if (url in allowed and item.get('error')=='RuntimeError:browser_fallback_unresolved:identity_not_confirmed'
+                and url not in urls):
+            urls.append(url)
+    return urls[:1]
+
 def show(summary):
     print('OurSteps Sync · '+summary['date'])
     for label,key in [('Discovered today','discovered_today'),('Already archived','already_archived'),('Newly archived','newly_archived'),('Updated metadata','updated_metadata'),('Total archive','total_archive')]:
@@ -180,6 +201,20 @@ for day in dates:
         if fb.returncode:
             print('Browser fallback failed; see data/logs/update-launcher.log.')
             break
+        retry_urls=identity_retry_urls(fb.stdout,urls)
+        if retry_urls:
+            # One isolated second attempt, after a completed batch and pause.
+            # Never loop indefinitely, retry explicit security challenges, or
+            # override the fallback's normal identity and HTML validation.
+            print('Browser fallback: one isolated identity recheck.',flush=True)
+            time.sleep(12)
+            second=run_group([str(runtime),str(ROOT/'scripts/browser_fallback.py'),*retry_urls],
+                             text=True,timeout=180)
+            with log.open('a') as f:
+                f.write(second.stdout)
+                f.write(second.stderr)
+            if second.returncode:
+                print('Browser fallback: recheck did not resolve; preserving normal retry state.',flush=True)
         print('Browser fallback: batch resolved; retrying incremental sync.',flush=True)
     if summary is None or result is None:
         code=max(code,2)
