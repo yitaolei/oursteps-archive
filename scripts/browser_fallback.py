@@ -88,7 +88,8 @@ def install_candidate(saved,cookies):
     if check.returncode:
         detail=(check.stderr or check.stdout).strip().splitlines()[-1:] or ['unknown']
         raise RuntimeError('browser_session_handoff_failed:'+detail[0][:200])
-    atomic_write(STATE,json.dumps(candidate,ensure_ascii=False,separators=(',',':')).encode())
+    # NAS verify_auth --candidate installs the session with mode 0600.
+    # NEVER write STATE via the Mac SMB mount: SMB can create it as mode 0777.
     atomic_write(ROOT/'data/auth-status.json',json.dumps(dict(
         category='success',at=time.time(),retry_at=0,attempts=0,session_reused=True,
         uid=UID,session_sha256=session_digest(candidate))).encode())

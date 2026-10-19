@@ -41,6 +41,18 @@ def frame(number,page,**changes):
     return json_line(header)+raw
 
 
+class SessionHandoffPermissionsTests(unittest.TestCase):
+    def test_handoff_never_rewrites_nas_session_over_smb(self):
+        from types import SimpleNamespace
+        saved={'uid':browser.UID,'cookies':[]}
+        cookies=[{'domain':'oursteps.com.au','name':'valid','value':'test'}]
+        writes=[]
+        with patch.object(browser,'run_group',return_value=SimpleNamespace(returncode=0,stdout='ok',stderr='')) as ssh, patch.object(browser,'atomic_write',side_effect=lambda path,data:writes.append(str(path))):
+            browser.install_candidate(saved,cookies)
+        self.assertEqual(ssh.call_count,1)
+        self.assertNotIn(str(browser.STATE),writes)
+        self.assertEqual(writes,[str(browser.ROOT/'data/auth-status.json')])
+
 class StoreStreamTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
