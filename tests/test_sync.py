@@ -125,6 +125,29 @@ class DailyTests(unittest.TestCase):
             self.assertEqual(store.setting('historical_error_streak'),'9')
             self.assertEqual(store.setting('historical_pause_until'),'9999999999')
 
+    def test_historical_halt_preserves_completed_daily_discovery_without_fetching_jobs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(temp);self.addCleanup(store.db.close)
+            store.set_setting('halt','historical_global_auth_or_challenge')
+            pages={directory_url():listing([1902000]),thread_url(1902000):article(1902000,'2026-09-08',301)}
+            calls=[]
+            class Fake:
+                mode='authenticated_private'
+                def __init__(self,*a,**k):pass
+                def get(self,url):
+                    calls.append(url)
+                    return store.snapshot(url,pages[url],mode=self.mode)
+                def wait_window(self):pass
+            with patch('oursteps.sync.Fetcher',Fake),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
+                result=sync(store,now=True)
+            self.assertEqual(result['status'],'halted')
+            self.assertTrue(result['historical_halt_active'])
+            self.assertTrue(result['discovery_complete'])
+            self.assertEqual(result['discovered_today'],1)
+            self.assertEqual(calls,[directory_url(),thread_url(1902000)])
+            self.assertEqual(store.setting('halt'),'historical_global_auth_or_challenge')
+            self.assertEqual(store.db.execute('PRAGMA foreign_key_check').fetchall(),[])
+
     def test_js_challenge_returns_browser_fallback_url(self):
         from oursteps.auth_verify import VerificationIssue
         with tempfile.TemporaryDirectory() as temp:

@@ -172,9 +172,14 @@ def sync(store,day=None,now=False):
         with store.db: store.db.execute("UPDATE discovery_state SET state='success',error=NULL WHERE day=?",(day,))
         halt=store.setting('halt')
         if halt:
-            if not store.db.execute('SELECT 1 FROM jobs WHERE state="auth_required" AND error=?',(halt,)).fetchone():
-                raise Blocked('existing_non_auth_halt_requires_review')
-            store.set_setting('halt','')
+            # A historical safety stop must remain in force for network fetches,
+            # but it is not a failure of today's verified directory enumeration.
+            # Preserve all already imported articles for independent publication.
+            result['status']='halted'
+            result['failures'].append('historical_safety_halt:'+halt)
+            result['historical_halt_active']=True
+            result['discovery_complete']=discovery_complete
+            return finish(store,result,day,initially)
         tids=[r[0] for r in store.db.execute('SELECT tid FROM daily_members WHERE day=?',(day,))]
         # Fresh identity verification allows only this day's failed authentication jobs to resume.
         with store.db:
