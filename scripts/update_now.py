@@ -226,7 +226,7 @@ for day in dates:
     partial=(result.returncode!=0 or summary['status']!='success' or bool(summary['failures'])
              or not summary.get('discovery_complete',False))
     publish=run_group(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10',deployment()[0],
-        remote_python('scripts/publish_public.py')],text=True,timeout=300)
+        remote_python('scripts/publish_public.py')],text=True,timeout=900)
     with log.open('a') as f:f.write(publish.stdout+publish.stderr)
     print('Public publish: '+('success' if publish.returncode==0 else 'FAILED; private sync preserved; see update-launcher.log'),flush=True)
     if publish.returncode:
