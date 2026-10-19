@@ -3,6 +3,7 @@ from .config import UID
 import datetime as dt
 import http.cookiejar
 import json
+import logging
 import random
 import stat
 from pathlib import Path
@@ -18,6 +19,14 @@ from .parser import BASE, Blocked, Busy, query, soup_of, guard, NotFound
 
 AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 OurStepsPersonalArchive/0.1'
 ROBOTS_AGENT = 'OurStepsPersonalArchive'
+
+def safe_denial_record(status, url, headers, body):
+    """An allowlisted, cookie-free record for an HTTP refusal; never log raw HTML."""
+    parsed=query(url)
+    keys=('Server','Content-Type','Retry-After','CF-Ray','X-Cache')
+    safe={k.lower().replace('-','_'):str(headers.get(k,''))[:100] for k in keys if headers.get(k)}
+    return dict(event='oursteps_http_denial',status=int(status),tid=str(parsed.get('tid',''))[:15],
+                page=str(parsed.get('page','1'))[:8],body_bytes=len(body),headers=safe)
 
 class RateLimited(Busy):
     def __init__(self, delay):
@@ -243,6 +252,9 @@ class Fetcher:
             adaptive = float(self.store.setting('adaptive_delay', '0'))
             healthy = status == 200 and self.store.setting('error_streak','0') == '0'
             self.store.set_setting('adaptive_delay', next_adaptive_delay(adaptive, latency, healthy))
+            if status in (401,403,407,429):
+                logging.warning('HTTP_DENIAL_DIAGNOSTIC %s',json.dumps(
+                    safe_denial_record(status,url,response.headers,body),sort_keys=True))
             if status == 429:
                 raise RateLimited(retry_after(response.headers.get('Retry-After')))
             if status in (404,410):
