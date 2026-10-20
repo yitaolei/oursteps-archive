@@ -1,3 +1,10 @@
+## 2026-10-21 07:45 AEDT — Restore daily articles after historical halt regression
+- Reported issue: Control Center/public index showed 14,688 archived articles but zero on 2026-10-21. Root cause: `be23bad` prematurely returned from daily `sync.py` whenever a persistent historical HTTP 403 global halt was set, so fresh daily discovery was never attempted. The daily partial publication path then correctly published an unchanged archive but could not show new articles.
+- Fix `6f524d7` removes the erroneous **pre-discovery** historical halt return and restores normal verified daily directory discovery and bounded Browser Fallback. The historical halt check still runs before the general queue worker, so unrelated historical access remains stopped; global halt was never cleared. Synchronous regression tests: 13 passed.
+- Immediate operator-triggered production `Incremental Sync` at 07:36:56 identified 16 current-day TIDs. Browser Fallback resolved 15/16 in one batch and launched exactly one isolated identity check for TID 1904499; the subsequent daily scan found all 16 already archived and complete, with `discovery_complete=true`, `historical_halt_active=true`, `status=halted` (historical queue still protected).
+- Successful public release `00ec1d027fc36a92b8a15ca3c0bb3d3dcdcdbde0194bb45f8363a50189d0ddf5`: 14,704 total, 4,431 recent-year; healthcheck PASS. Read-only NAS verification: exactly 16 `daily_members` on 2026-10-21, all 16 complete, historical safety halt unchanged. The 07:44 run ended partial as designed; the displayed historical failed status does not mean today's articles were withheld.
+- Follow-up: avoid reintroducing any pre-discovery historical halt, keep independent error reporting and partial publish. Underlying historical HTTP 403 limit remains unresolved.
+
 ## 2026-10-20 — HTTP 403 diagnostic investigation
 
 - Latest 18 historical Browser Stream batches: 5 explicitly stopped with HTTP 403, 13 did not. Multiple different TIDs were affected, so this is not demonstrably one broken article URL.
