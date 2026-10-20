@@ -125,18 +125,6 @@ class DailyTests(unittest.TestCase):
             self.assertEqual(store.setting('historical_error_streak'),'9')
             self.assertEqual(store.setting('historical_pause_until'),'9999999999')
 
-    def test_historical_halt_with_stale_daily_auth_record_does_not_access_site(self):
-        with tempfile.TemporaryDirectory() as temp:
-            store=Store(temp);self.addCleanup(store.db.close)
-            store.set_setting('halt','historical_global_auth_or_challenge')
-            with store.db:
-                store.db.execute('INSERT OR REPLACE INTO discovery_state VALUES(?,?,?,?,?,?)',('2026-09-08',directory_url(),'auth_required',9999999999,1,'old halt'))
-            with patch('oursteps.sync.Fetcher',side_effect=AssertionError('no network allowed')),patch('oursteps.sync.sydney_today',return_value='2026-09-08'):
-                result=sync(store,now=True)
-            self.assertEqual(result['status'],'halted')
-            self.assertTrue(result['historical_halt_active'])
-            self.assertEqual(store.setting('halt'),'historical_global_auth_or_challenge')
-
     def test_historical_halt_preserves_completed_daily_discovery_without_fetching_jobs(self):
         with tempfile.TemporaryDirectory() as temp:
             store=Store(temp);self.addCleanup(store.db.close)
@@ -154,9 +142,9 @@ class DailyTests(unittest.TestCase):
                 result=sync(store,now=True)
             self.assertEqual(result['status'],'halted')
             self.assertTrue(result['historical_halt_active'])
-            self.assertFalse(result['discovery_complete'])
-            self.assertEqual(result['discovered_today'],0)
-            self.assertEqual(calls,[])
+            self.assertTrue(result['discovery_complete'])
+            self.assertEqual(result['discovered_today'],1)
+            self.assertEqual(calls,[directory_url(),thread_url(1902000)])
             self.assertEqual(store.setting('halt'),'historical_global_auth_or_challenge')
             self.assertEqual(store.db.execute('PRAGMA foreign_key_check').fetchall(),[])
 

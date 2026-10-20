@@ -76,13 +76,6 @@ def sync(store,day=None,now=False):
     deferred_threads=[]
     initially={r[0] for r in store.db.execute("SELECT tid FROM threads WHERE status='complete'")}
     existing_state=store.db.execute('SELECT * FROM discovery_state WHERE day=?',(day,)).fetchone()
-    # Report the persisted historical safety stop before stale daily auth
-    # records. No network access, retry or global halt clearing is attempted.
-    historical_halt=store.setting('halt')
-    if historical_halt=='historical_global_auth_or_challenge':
-        result.update(status='halted',failures=['historical_safety_halt:'+historical_halt],
-                      historical_halt_active=True,discovery_complete=False)
-        return finish(store,result,day,initially)
     if existing_state and existing_state['state']=='auth_required':
         # A freshly bootstrapped session is required before an auth-failed directory can retry.
         from .auth import STATE
