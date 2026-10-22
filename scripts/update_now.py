@@ -92,13 +92,16 @@ else:
             latest=json.loads(auth_status.read_text()) if auth_status.exists() else {}
         except (OSError,ValueError):
             latest={}
-        cloudfront_grace=(
+        transient_preflight=(
             latest.get('category')=='retry_later' and
-            latest.get('reason')=='cloudfront_403' and
+            latest.get('reason') in ('cloudfront_403','network_or_browser_transport') and
             trusted_session_for_cloudfront(session)
         )
-        if cloudfront_grace:
-            print('Authentication preflight: CloudFront 403; using last verified session and continuing to NAS verification.',flush=True)
+        if transient_preflight:
+            # This is not permission to bypass authentication: the saved session
+            # was previously verified, is at most 36h old, and NAS still checks
+            # the authenticated daily directory and permissions before importing.
+            print('Authentication preflight transient; using recently verified session for NAS identity recheck.',flush=True)
         else:
             print((auth.stdout+auth.stderr).strip())
             raise SystemExit(auth.returncode)
