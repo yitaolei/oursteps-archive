@@ -10,6 +10,7 @@ HOME=Path.home()
 LOG=HOME/'Library/Logs/oursteps-history-backfill.log'
 SYNC=HOME/'Library/Logs/oursteps-update-launchd.log'
 OUT=HOME/'Library/Logs/oursteps-progress-health.json'
+BROWSER_STATE=HOME/'Library/Application Support/OurSteps/control-plane/data/historical-browser-lane-state.json'
 
 def tail(path,amount=1500000):
     if not path.exists():return ''
@@ -17,7 +18,9 @@ def tail(path,amount=1500000):
         f.seek(max(0,path.stat().st_size-amount))
         return f.read().decode('utf-8','replace')
 
-def report(history,sync):
+def report(history,sync,browser=None,now=None):
+    now=int(time.time() if now is None else now)
+    browser=browser if isinstance(browser,dict) else {}
     recent=history[-150000:]
     history_halt=bool(re.search(r'"run_state"\s*:\s*"halted: inspect existing halt',recent))
     def last_number(key):
@@ -25,20 +28,30 @@ def report(history,sync):
         return int(vals[-1]) if vals else None
     pending=last_number('awaiting_backfill')
     missing=last_number('shards_remaining')
+    inventory_counts=browser.get('inventory_counts') if isinstance(browser.get('inventory_counts'),dict) else {}
+    if isinstance(inventory_counts.get('incomplete'),int) and inventory_counts.get('incomplete')>=0:
+        pending=inventory_counts['incomplete']
     last_sync=None
     for line in reversed(sync.splitlines()):
         if line.startswith('OurSteps Sync '):
             last_sync=line;break
-    health='BLOCKED' if history_halt else 'UNKNOWN' if pending is None else 'ACTIVE_OR_UNVERIFIED'
-    return dict(checked_at=int(time.time()),health=health,history_halt_seen=history_halt,
+    browser_result=browser.get('last_result') if isinstance(browser.get('last_result'),dict) else {}
+    recent_browser=(browser_result.get('status')=='completed' and isinstance(browser_result.get('at'),int)
+                    and 0<=now-browser_result['at']<=6*3600)
+    health=('BROWSER_RECOVERY_PARTIAL' if recent_browser else 'BLOCKED') if history_halt else 'UNKNOWN' if pending is None else 'ACTIVE_OR_UNVERIFIED'
+    return dict(checked_at=now,health=health,history_halt_seen=history_halt,
+                browser_lane_recent=recent_browser,browser_lane_last_result=browser_result or None,
+                historical_complete=inventory_counts.get('complete'),
                 awaiting_backfill=pending,discovery_shards_remaining=missing,last_sync=last_sync)
 
 def main():
-    data=report(tail(LOG),tail(SYNC))
+    try:browser=json.loads(BROWSER_STATE.read_text())
+    except (FileNotFoundError,ValueError):browser={}
+    data=report(tail(LOG),tail(SYNC),browser)
     tmp=OUT.with_suffix('.tmp')
     tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
     tmp.replace(OUT)
     print(json.dumps(data,ensure_ascii=False))
-    return 2 if data['health']=='BLOCKED' else 0
+    return 2 if data['history_halt_seen'] else 0
 
 if __name__=='__main__':sys.exit(main())
