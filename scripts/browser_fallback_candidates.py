@@ -63,9 +63,33 @@ def candidates(historical=False,limit=20):
     finally:
         db.close()
 
+def historical_queue_audit():
+    """Read-only breakdown; auth-denied pages are NOT runnable candidates."""
+    db=sqlite3.connect('file:'+str(ROOT/'data/archive.sqlite3')+'?mode=ro',uri=True)
+    try:
+        rows=db.execute("""SELECT j.state,coalesce(j.error,''),count(*)
+            FROM jobs j JOIN inventory i ON i.tid=j.tid
+            JOIN threads t ON t.tid=j.tid
+            WHERE t.status!='complete' AND j.state!='success'
+            GROUP BY j.state,j.error""").fetchall()
+        result={'eligible_incomplete_html':0,'blocked_or_manual':0,'other':0,'total_jobs':0}
+        for state,error,count in rows:
+            result['total_jobs']+=count
+            if state=='retry_later' and error=='retry_later:incomplete_html':
+                result['eligible_incomplete_html']+=count
+            elif state in ('auth_required','permission_denied') or 'http_403' in error or 'http_429' in error:
+                result['blocked_or_manual']+=count
+            else:result['other']+=count
+        return result
+    finally:db.close()
+
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--historical',action='store_true')
     p.add_argument('--limit',type=int,default=20)
+    p.add_argument('--audit-historical',action='store_true',help='Read-only summary of incomplete historical queue; never fetch')
     a=p.parse_args()
-    print(json.dumps({'urls':candidates(a.historical,a.limit)},separators=(',',':')))
+    if a.audit_historical:
+        print(json.dumps({'audit':historical_queue_audit()},separators=(',',':')))
+    else:
+        print(json.dumps({'urls':candidates(a.historical,a.limit)},separators=(',',':')))
