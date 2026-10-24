@@ -38,9 +38,13 @@ def report(history,sync,browser=None,now=None):
     browser_result=browser.get('last_result') if isinstance(browser.get('last_result'),dict) else {}
     recent_browser=(browser_result.get('status')=='completed' and isinstance(browser_result.get('at'),int)
                     and 0<=now-browser_result['at']<=6*3600)
-    health=('BROWSER_RECOVERY_PARTIAL' if recent_browser else 'BLOCKED') if history_halt else 'UNKNOWN' if pending is None else 'ACTIVE_OR_UNVERIFIED'
+    browser_site_hold=bool(browser.get('site_hold'))
+    health=('BROWSER_SITE_HOLD' if browser_site_hold else
+            ('BROWSER_RECOVERY_PARTIAL' if recent_browser else 'BLOCKED') if history_halt else
+            'UNKNOWN' if pending is None else 'ACTIVE_OR_UNVERIFIED')
     return dict(checked_at=now,health=health,history_halt_seen=history_halt,
-                browser_lane_recent=recent_browser,browser_lane_last_result=browser_result or None,
+                browser_lane_recent=recent_browser,browser_site_hold=browser_site_hold,
+                browser_lane_last_result=browser_result or None,
                 historical_complete=inventory_counts.get('complete'),
                 awaiting_backfill=pending,discovery_shards_remaining=missing,last_sync=last_sync)
 
@@ -52,6 +56,6 @@ def main():
     tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
     tmp.replace(OUT)
     print(json.dumps(data,ensure_ascii=False))
-    return 2 if data['history_halt_seen'] else 0
+    return 2 if data['history_halt_seen'] or data['browser_site_hold'] else 0
 
 if __name__=='__main__':sys.exit(main())

@@ -38,6 +38,7 @@ def counts(db):
             'incomplete':sum(value for name,value in rows if name!='complete')}
 
 def main():
+    if sys.platform=='darwin':raise SystemExit('Historical candidate query must run on NAS')
     p=argparse.ArgumentParser();p.add_argument('--tid',type=int);p.add_argument('--resume',action='store_true');p.add_argument('--counts',action='store_true');p.add_argument('--limit',type=int,default=10);a=p.parse_args()
     if not 1<=a.limit<=100:p.error('limit 1..100')
     db=sqlite3.connect('file:'+str(ROOT/'data/archive.sqlite3')+'?mode=ro',uri=True)

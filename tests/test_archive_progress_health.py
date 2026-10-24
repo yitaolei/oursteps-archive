@@ -28,3 +28,7 @@ class ProgressHealthTests(unittest.TestCase):
   x=report(body,'',browser,now=2000)
   self.assertEqual(x['awaiting_backfill'],20073)
   self.assertEqual(x['historical_complete'],14250)
+ def test_browser_site_hold_is_visible_even_if_http_log_is_missing(self):
+  x=report('', '',{'site_hold':{'reason':'browser_site_access_restricted'}},now=2000)
+  self.assertEqual(x['health'],'BROWSER_SITE_HOLD')
+  self.assertTrue(x['browser_site_hold'])

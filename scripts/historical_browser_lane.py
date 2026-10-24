@@ -58,7 +58,9 @@ def choose(state,limit=100):
     if isinstance(active,int) and str(active) not in state.get('failed',{}):
         pending=remote_json('scripts/historical_browser_candidates.py','--tid',str(active),'--limit','1')['items']
         if pending:return {'tid':active,'page':0,'url':pending[0]['url']}
-    for mode in ('--resume',None):
+    # New inventory is the reliable throughput lane; older partial review
+    # cases are a fallback and must not monopolize every scheduled run.
+    for mode in (None,'--resume'):
         args=['scripts/historical_browser_candidates.py','--limit',str(limit)]
         if mode:args.append(mode)
         for item in remote_json(*args)['items']:
@@ -66,6 +68,7 @@ def choose(state,limit=100):
     return None
 
 def main():
+    if sys.platform!='darwin':raise SystemExit('Browser lane must run on Mac Studio')
     p=argparse.ArgumentParser();p.add_argument('--max-pages',type=int,default=5);a=p.parse_args()
     if not 1<=a.max_pages<=12:p.error('max pages must be 1..12')
     LOCK.parent.mkdir(parents=True,exist_ok=True)
