@@ -30,12 +30,19 @@ def candidates(historical=False,limit=20):
             # queried per pipeline; the next scheduler run is the next retry.
             # A page committed before an SSH/ACK loss is already state=success
             # and is excluded here: SQLite is the only recovery checkpoint.
+            # The historical site-wide halt is authoritative for all browser
+            # requests as well as urllib. Do not seek a different transport
+            # around an active access denial.
+            halted=db.execute("SELECT value FROM settings WHERE key='halt'").fetchone()
+            if halted and halted[0]:
+                return []
             rows=db.execute(
                 "SELECT j.tid,j.page FROM jobs j "
                 "JOIN inventory i ON i.tid=j.tid "
                 "JOIN threads t ON t.tid=j.tid "
-                "WHERE j.state='retry_later' "
-                "AND j.error='retry_later:incomplete_html' "
+                "WHERE j.state IN ('pending','retry_later') "
+                "AND (j.error IS NULL OR j.error='retry_later:incomplete_html') "
+                "AND t.status!='complete' "
                 "ORDER BY CASE WHEN t.status='partial' THEN 0 ELSE 1 END,"
                 "j.attempts ASC,j.retry_at ASC,j.tid DESC,j.page ASC LIMIT ?",
                 (limit,)).fetchall()

@@ -27,7 +27,8 @@ def worklist(db,limit=80):
        WHERE t.status!='complete'
        ORDER BY CASE WHEN t.status='partial' THEN 0 ELSE 1 END,i.tid DESC
        LIMIT ?''',(limit,)).fetchall()
-    items=[{'tid':int(tid),'thread_status':status,'work_state':classify(jstate,error),'page':int(page or 1)}
+    items=[{'tid':int(tid),'thread_status':status,'work_state':classify(jstate,error),'page':int(page or 1),
+            'requires_access_review':classify(jstate,error)=='access_hold'}
            for tid,status,jstate,error,page in rows]
     counts=dict(db.execute('''SELECT t.status,count(*) FROM inventory i
          JOIN threads t ON t.tid=i.tid GROUP BY t.status''').fetchall())

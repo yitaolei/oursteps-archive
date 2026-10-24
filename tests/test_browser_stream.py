@@ -125,6 +125,12 @@ class StoreStreamTests(unittest.TestCase):
             self.store.db.execute('INSERT INTO inventory VALUES(?,0,0)',(TID,))
             self.store.db.execute("UPDATE jobs SET state='pending',error=NULL WHERE url=?",(URLS[0],))
         code,lines=self.run_stream(frame(1,1))
+        self.assertEqual(code,0)  # Pending inventory page is allowed when no halt exists.
+        self.assertEqual(lines[-1]['status'],'imported')
+        with self.store.db:
+            self.store.db.execute("UPDATE jobs SET state='pending',error=NULL WHERE url=?",(URLS[0],))
+        self.store.set_setting('halt','historical_global_auth_or_challenge')
+        code,lines=self.run_stream(frame(1,1))
         self.assertEqual(code,2)
         self.assertIn('not_due_historical_challenge',lines[-1]['error'])
         with self.assertRaises(Exception):

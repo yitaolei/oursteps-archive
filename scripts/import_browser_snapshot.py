@@ -109,8 +109,10 @@ def save_snapshot(store,url,content,historical_pending=False):
         # Streaming is historical only: refuse anything outside Inventory/jobs.
         if not store.db.execute(
                 "SELECT 1 FROM jobs j JOIN inventory i ON i.tid=j.tid "
-                "WHERE j.url=? AND j.tid=? AND j.page=? AND j.state='retry_later' "
-                "AND j.error='retry_later:incomplete_html'",
+                "WHERE j.url=? AND j.tid=? AND j.page=? "
+                "AND j.state IN ('pending','retry_later') "
+                "AND (j.error IS NULL OR j.error='retry_later:incomplete_html') "
+                "AND NOT EXISTS (SELECT 1 FROM settings WHERE key='halt' AND value!='')",
                 (canonical,tid,parsed['page'])).fetchone():
             raise ValueError('browser_snapshot_not_due_historical_challenge')
         from oursteps.history import _historical_preview_pending, _save_historical_preview_pending
