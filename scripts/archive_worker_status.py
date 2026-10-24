@@ -110,6 +110,27 @@ def local_pipeline():
     return None
 
 
+def browser_lane_pipeline():
+    """Display-only browser task probe; do NOT alter the NAS writer guard."""
+    try:
+        output=subprocess.check_output(['ps','-axo','pid=,etime=,command='],text=True,stderr=subprocess.DEVNULL)
+    except (OSError,subprocess.SubprocessError):
+        return None
+    for line in output.splitlines():
+        parts=line.strip().split(None,2)
+        if len(parts)!=3:continue
+        pid_text,elapsed_text,command=parts
+        if not ('scripts/historical_browser_burst.py' in command or
+                'scripts/historical_browser_lane.py' in command):continue
+        if not any(name in command for name in ('/python ','/python3 ','/Python ','/Python3 ')):
+            continue
+        try:pid=int(pid_text)
+        except ValueError:continue
+        elapsed=_elapsed_seconds(elapsed_text)
+        return {'busy':True,'kind':'historical_backfill','pid':pid,
+                'started_at':int(time.time()-elapsed) if elapsed is not None else None}
+    return None
+
 def probe():
     local=local_pipeline()
     if local is not None:
@@ -132,16 +153,16 @@ def next_backfill(now=None):
     tz=ZoneInfo('Australia/Sydney')
     now=now or datetime.now(tz)
     for hour in (7,9,11,13,15,17,19,21):
-        candidate=now.replace(hour=hour,minute=0,second=0,microsecond=0)
+        candidate=now.replace(hour=hour,minute=30,second=0,microsecond=0)
         if candidate>now:
             return int(candidate.timestamp())
-    tomorrow=(now+timedelta(days=1)).replace(hour=7,minute=0,second=0,microsecond=0)
+    tomorrow=(now+timedelta(days=1)).replace(hour=7,minute=30,second=0,microsecond=0)
     return int(tomorrow.timestamp())
 
 def public_status():
     sampled=int(time.time())
     try:
-        data=probe()
+        data=browser_lane_pipeline() or probe()
     except Exception:
         return {'state':'UNKNOWN','task':'unknown','started_at':None,'elapsed_seconds':None,'next_historical_backfill':next_backfill(),'sampled_at':sampled}
     started=data.get('started_at') if data.get('busy') else None

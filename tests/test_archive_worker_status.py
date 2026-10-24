@@ -29,5 +29,16 @@ class ArchiveWorkerStatusTests(unittest.TestCase):
         self.assertEqual(data['kind'],'incremental_sync')
         self.assertEqual(data['started_at'],958)
 
+    def test_browser_lane_is_visible_without_changing_nas_guard(self):
+        sample='789 01:20 /usr/bin/python3 /repo/scripts/historical_browser_burst.py --max-runs 3\n'
+        with patch.object(m.subprocess,'check_output',return_value=sample),patch.object(m.time,'time',return_value=1000):
+            browser=m.browser_lane_pipeline()
+        self.assertEqual(browser['kind'],'historical_backfill')
+        self.assertEqual(browser['started_at'],920)
+        with patch.object(m,'browser_lane_pipeline',return_value=browser),patch.object(m,'probe',side_effect=AssertionError('should not query NAS')):
+            result=m.public_status()
+        self.assertEqual(result['state'],'RUNNING')
+        self.assertEqual(result['task'],'historical_backfill')
+
 if __name__=='__main__':
     unittest.main()
