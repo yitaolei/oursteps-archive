@@ -17,3 +17,18 @@ class BrowserBurstTests(unittest.TestCase):
    result=b.burst(3,5)
   self.assertEqual(call.call_count,1)
   self.assertEqual(result['runs'],1)
+
+class DeferredPublishTests(unittest.TestCase):
+ def test_one_publish_for_five_completed_threads(self):
+  res=CompletedProcess([],0,json.dumps({'status':'completed','pages_imported':2,'completed_pages':1,'publish_pending':True})+'\n','')
+  with patch.object(b,'run_group',return_value=res), patch('scripts.historical_browser_lane.publish_release') as publish:
+   result=b.burst(5,5)
+  self.assertEqual(result['threads_completed'],5)
+  publish.assert_called_once_with()
+ def test_publish_after_partial_failure(self):
+  good=CompletedProcess([],0,json.dumps({'status':'completed','pages_imported':1,'completed_pages':1,'publish_pending':True})+'\n','')
+  bad=CompletedProcess([],2,json.dumps({'status':'held','pages_imported':0})+'\n','')
+  with patch.object(b,'run_group',side_effect=[good,bad]),patch('scripts.historical_browser_lane.publish_release') as publish:
+   result=b.burst(5,5)
+  self.assertEqual(result['runs'],2)
+  publish.assert_called_once_with()

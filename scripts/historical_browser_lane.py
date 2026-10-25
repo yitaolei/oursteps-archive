@@ -67,9 +67,16 @@ def choose(state,limit=100):
             if str(item['tid']) not in state.get('failed',{}):return item
     return None
 
+def publish_release():
+    host,_=deployment()
+    for command in ('scripts/publish_public.py','scripts/public_healthcheck.py'):
+        result=run_group(ssh_argv(host)+[remote_python(command)],text=True,timeout=1200)
+        if result.returncode:raise RuntimeError('public release or healthcheck failed')
+
+
 def main():
     if sys.platform!='darwin':raise SystemExit('Browser lane must run on Mac Studio')
-    p=argparse.ArgumentParser();p.add_argument('--max-pages',type=int,default=5);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--max-pages',type=int,default=5);p.add_argument('--defer-publish',action='store_true');a=p.parse_args()
     if not 1<=a.max_pages<=12:p.error('max pages must be 1..12')
     LOCK.parent.mkdir(parents=True,exist_ok=True)
     with LOCK.open('a') as lock:
@@ -99,14 +106,12 @@ def main():
             if complete:
                 state.pop('active_tid',None)
                 write_state(state)
-                host,_=deployment()
-                for command in ('scripts/publish_public.py','scripts/public_healthcheck.py'):
-                    result=run_group(ssh_argv(host)+[remote_python(command)],text=True,timeout=1200)
-                    if result.returncode:raise RuntimeError('public release or healthcheck failed')
+                if not a.defer_publish:
+                    publish_release()
             if not complete:
                 state['active_tid']=tid
                 write_state(state)
-            summary={'status':'completed','tid':tid,'pages_imported':count,'completed_pages':complete,'published':bool(complete),'at':int(time.time())}
+            summary={'status':'completed','tid':tid,'pages_imported':count,'completed_pages':complete,'published':bool(complete and not a.defer_publish),'publish_pending':bool(complete and a.defer_publish),'at':int(time.time())}
             state['last_result']=summary
             try:
                 state['inventory_counts']=remote_json('scripts/historical_browser_candidates.py','--counts')['counts']
