@@ -21,6 +21,10 @@ class HistoricalBrowserLaneTests(unittest.TestCase):
         self.assertEqual([r['page'] for r in continuations(self.db,3,20)],[2])
         self.db.execute("UPDATE jobs SET state='auth_required',error='http_403' WHERE tid=3")
         self.assertEqual(continuations(self.db,3,20),[])
+    def test_continuation_rejects_tid_with_denied_sibling(self):
+        self.db.execute("INSERT INTO jobs VALUES(3,1,'auth_required','http_403')")
+        self.assertEqual(continuations(self.db,3,20),[])
+
     def test_failed_tids_skipped(self):
         with patch.object(lane,'remote_json',return_value={'items':[{'tid':10,'page':1,'url':'one'}, {'tid':11,'page':1,'url':'two'}]}):
             self.assertEqual(lane.choose({'failed':{'10':{'reason':'held'}}})['tid'],11)

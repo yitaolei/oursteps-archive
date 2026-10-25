@@ -32,3 +32,10 @@ class DeferredPublishTests(unittest.TestCase):
    result=b.burst(5,5)
   self.assertEqual(result['runs'],2)
   publish.assert_called_once_with()
+
+ def test_timeout_after_success_still_publishes(self):
+  from subprocess import TimeoutExpired
+  good=CompletedProcess([],0,json.dumps({'status':'completed','pages_imported':1,'completed_pages':1,'publish_pending':True})+'\n','')
+  with patch.object(b,'run_group',side_effect=[good,TimeoutExpired('lane',1500)]),patch('scripts.historical_browser_lane.publish_release') as publish:
+   with self.assertRaises(TimeoutExpired):b.burst(5,5)
+  publish.assert_called_once_with()

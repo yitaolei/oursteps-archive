@@ -17,6 +17,9 @@ def continuations(db,tid,limit):
         JOIN threads t ON t.tid=i.tid
         WHERE j.tid=? AND t.status!='complete' AND j.state='pending'
         AND j.error IS NULL AND j.page>1
+        AND NOT EXISTS(SELECT 1 FROM jobs denied WHERE denied.tid=j.tid
+          AND (denied.state IN ('auth_required','permanently_skipped')
+               OR denied.error LIKE '%http_403%' OR denied.error LIKE '%http_429%'))
         ORDER BY j.page ASC LIMIT ?''',(tid,limit)).fetchall()
     return [dict(tid=tid,url=thread_url(tid,page),page=page) for (page,) in rows]
 

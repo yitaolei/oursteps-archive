@@ -11,16 +11,20 @@ def burst(max_runs=3,max_pages=5):
     if not 1<=max_runs<=5 or not 1<=max_pages<=12:raise ValueError('invalid burst limits')
     runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
     results=[]
-    for _ in range(max_runs):
-        run=run_group([str(runtime),str(ROOT/'scripts/historical_browser_lane.py'),'--max-pages',str(max_pages),'--defer-publish'],text=True,timeout=1500)
-        try:report=json.loads(run.stdout.strip().splitlines()[-1])
-        except (ValueError,IndexError):
-            report={'status':'invalid_child_result'}
-        results.append(report)
-        if run.returncode or report.get('status')!='completed':break
-    if any(x.get('publish_pending') for x in results):
-        from scripts.historical_browser_lane import publish_release
-        publish_release()
+    try:
+        for _ in range(max_runs):
+            run=run_group([str(runtime),str(ROOT/'scripts/historical_browser_lane.py'),'--max-pages',str(max_pages),'--defer-publish'],text=True,timeout=1500)
+            try:report=json.loads(run.stdout.strip().splitlines()[-1])
+            except (ValueError,IndexError):
+                report={'status':'invalid_child_result'}
+            results.append(report)
+            if run.returncode or report.get('status')!='completed':break
+    finally:
+        # Successful NAS commits must be published even when a later lane
+        # raises TimeoutExpired or an unexpected infrastructure exception.
+        if any(x.get('publish_pending') for x in results):
+            from scripts.historical_browser_lane import publish_release
+            publish_release()
     return {'runs':len(results),'pages_imported':sum(int(x.get('pages_imported',0)) for x in results),
             'threads_completed':sum(int(x.get('completed_pages',0)) for x in results),
             'results':results}
