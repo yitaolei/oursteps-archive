@@ -52,7 +52,8 @@ def batch(urls):
         # Import ACKs are durable; an unrelated session handoff must not hide them.
         report['handoff_warning']=True
     elif result.returncode or report.get('stop_reason') or report.get('handoff_error') or report.get('failed'):
-        raise RuntimeError('browser batch validation or transport failed')
+        detail={'stage':'browser_batch','exit_code':result.returncode,'imported':report.get('imported',0),'failed':report.get('failed',0),'stop_kind':str(report.get('stop_reason') or '')[:100], 'handoff':bool(report.get('handoff_error')), 'failure_kinds':[str(x.get('error','')).split(':',1)[0][:50] for x in report.get('failures',[]) if isinstance(x,dict)][:12]}
+        raise RuntimeError('browser_batch_diagnostic:'+json.dumps(detail,separators=(',',':')))
     if report.get('imported')!=len(urls):raise RuntimeError('browser batch incomplete')
     return report
 
@@ -129,6 +130,7 @@ def main():
             if isinstance(exc,BrowserSiteHold):
                 state['site_hold']={'at':int(time.time()),'reason':'browser_site_access_restricted'}
             record(state,tid,type(exc).__name__+':'+str(exc))
+            print('HISTORICAL_LANE_ERROR '+json.dumps({'tid':tid,'pages_committed_before_error':count,'exception':str(exc)[:700]},separators=(',',':')),file=sys.stderr,flush=True)
             print(json.dumps({'status':'held','tid':tid,'imported_before_error':count,'reason':type(exc).__name__},separators=(',',':')))
             raise SystemExit(2)
 if __name__=='__main__':main()
