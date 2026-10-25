@@ -1,8 +1,23 @@
 import json
 import unittest
+import tempfile
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 from scripts import historical_browser_burst as b
+from scripts import historical_browser_lane as lane
+
+# All tests use a private state file; never touch Studio's production checkpoint.
+_state_dir = None
+_state_patch = None
+def setUpModule():
+ global _state_dir, _state_patch
+ _state_dir = tempfile.TemporaryDirectory(prefix='oursteps-burst-test-')
+ _state_patch = patch.object(lane, 'STATE', Path(_state_dir.name) / 'state.json')
+ _state_patch.start()
+def tearDownModule():
+ _state_patch.stop()
+ _state_dir.cleanup()
 class BrowserBurstTests(unittest.TestCase):
  def test_three_successful_runs(self):
   res=CompletedProcess([],0,json.dumps({'status':'completed','pages_imported':2,'completed_pages':1})+'\n','')
