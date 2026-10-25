@@ -17,3 +17,10 @@ class DenialRecordTests(unittest.TestCase):
         source=(Path(__file__).resolve().parents[1]/'scripts/browser_fallback.py').read_text()
         self.assertIn('safe_denial_record(',source)
         self.assertIn('response.status in (401,403,407,429)',source)
+
+    def test_cloudfront_refusal_classification_precedes_generic_block(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[1]/'oursteps/fetch.py').read_text()
+        start=source.index('            if status == 403:',source.index('class Fetcher:'))
+        stop=source.index('            if status in (403,401,407)',start)
+        self.assertIn('inspect_response(body,status)',source[start:stop])

@@ -290,6 +290,11 @@ class Fetcher:
                 login = target_q.get('mod') == 'logging' or target_q.get('action') == 'login'
                 raise VerificationIssue('auth_required' if login else 'unexpected_layout',
                                         'login_redirect' if login else 'noncanonical_redirect')
+            if status == 403:
+                # Differentiate a CDN temporary refusal from an explicit
+                # permission denial without continuing or retrying this request.
+                from .auth_verify import inspect_response
+                inspect_response(body,status)
             if status in (403,401,407) or 300 <= status < 400:
                 raise Blocked('http_%s; redirect/auth/rate-limit not followed' % status)
             if status >= 500:
