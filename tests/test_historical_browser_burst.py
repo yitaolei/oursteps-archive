@@ -13,7 +13,7 @@ class BrowserBurstTests(unittest.TestCase):
   self.assertEqual(result['threads_completed'],3)
  def test_access_hold_stops_remaining_runs(self):
   res=CompletedProcess([],2,json.dumps({'status':'held','pages_imported':0,'completed_pages':0})+'\n','')
-  with patch.object(b,'run_group',return_value=res) as call:
+  with patch.object(b,'run_group',return_value=res) as call,patch('scripts.historical_browser_lane.saved',return_value={'site_hold':{'reason':'denied'}}):
    result=b.burst(3,5)
   self.assertEqual(call.call_count,1)
   self.assertEqual(result['runs'],1)
@@ -28,7 +28,7 @@ class DeferredPublishTests(unittest.TestCase):
  def test_publish_after_partial_failure(self):
   good=CompletedProcess([],0,json.dumps({'status':'completed','pages_imported':1,'completed_pages':1,'publish_pending':True})+'\n','')
   bad=CompletedProcess([],2,json.dumps({'status':'held','pages_imported':0})+'\n','')
-  with patch.object(b,'run_group',side_effect=[good,bad]),patch('scripts.historical_browser_lane.publish_release') as publish:
+  with patch.object(b,'run_group',side_effect=[good,bad]),patch('scripts.historical_browser_lane.publish_release') as publish,patch('scripts.historical_browser_lane.saved',return_value={'site_hold':{'reason':'denied'}}):
    result=b.burst(5,5)
   self.assertEqual(result['runs'],2)
   publish.assert_called_once_with()
@@ -57,3 +57,20 @@ class PersistentPublishRecoveryTests(unittest.TestCase):
    with self.assertRaisesRegex(RuntimeError,'publish failed'):b.burst(1,5)
   save.assert_not_called()
   run.assert_not_called()
+
+class FailureIsolationTests(unittest.TestCase):
+ def test_isolated_failure_continues_to_next_thread(self):
+  from scripts import historical_browser_lane as lane
+  held=CompletedProcess([],2,json.dumps({'status':'held','tid':42,'pages_imported':0})+'\n','')
+  good=CompletedProcess([],0,json.dumps({'status':'completed','tid':41,'pages_imported':1,'completed_pages':1})+'\n','')
+  with patch.object(lane,'saved',return_value={'failed':{'42':{'reason':'parse'}}}),patch.object(b,'run_group',side_effect=[held,good]) as run:
+   out=b.burst(2,5)
+  self.assertEqual(out['runs'],2)
+  self.assertEqual(out['threads_completed'],1)
+ def test_site_hold_stops_the_burst(self):
+  from scripts import historical_browser_lane as lane
+  held=CompletedProcess([],2,json.dumps({'status':'held','tid':42})+'\n','')
+  with patch.object(lane,'saved',return_value={'site_hold':{'reason':'denied'}}),patch.object(b,'run_group',return_value=held) as run:
+   out=b.burst(5,5)
+  self.assertEqual(out['runs'],1)
+  run.assert_called_once()

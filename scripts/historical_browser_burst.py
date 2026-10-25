@@ -25,6 +25,10 @@ def burst(max_runs=3,max_pages=5):
             except (ValueError,IndexError):
                 report={'status':'invalid_child_result'}
             results.append(report)
+            if report.get('status')=='held' and not lane.saved().get('site_hold'):
+                # Isolated per-thread parse/import failure: recorded by lane;
+                # continue to the next eligible TID, never retry this TID here.
+                continue
             if run.returncode or report.get('status')!='completed':break
     finally:
         # Successful NAS commits must be published even when a later lane
@@ -42,5 +46,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--max-runs',type=int,default=3);p.add_argument('--max-pages',type=int,default=5);a=p.parse_args()
     data=burst(a.max_runs,a.max_pages)
     print(json.dumps(data,separators=(',',':')))
-    if any(x.get('status') in ('held','invalid_child_result','site_hold') for x in data['results']):raise SystemExit(2)
+    if any(x.get('status') in ('invalid_child_result','site_hold') for x in data['results']):raise SystemExit(2)
+    from scripts import historical_browser_lane as lane
+    if lane.saved().get('site_hold'):raise SystemExit(2)
 if __name__=='__main__':main()
