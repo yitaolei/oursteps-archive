@@ -39,3 +39,21 @@ class DeferredPublishTests(unittest.TestCase):
   with patch.object(b,'run_group',side_effect=[good,TimeoutExpired('lane',1500)]),patch('scripts.historical_browser_lane.publish_release') as publish:
    with self.assertRaises(TimeoutExpired):b.burst(5,5)
   publish.assert_called_once_with()
+
+class PersistentPublishRecoveryTests(unittest.TestCase):
+ def test_stale_publication_is_recovered_before_new_browser_navigation(self):
+  from scripts import historical_browser_lane as lane
+  state={'publish_pending':True,'failed':{}}
+  with patch.object(lane,'saved',return_value=state),patch.object(lane,'write_state') as save,patch.object(lane,'publish_release') as publish,patch.object(b,'run_group',return_value=CompletedProcess([],0,'{"status":"empty"}\n','')) as run:
+   b.burst(1,5)
+  publish.assert_called_once_with()
+  save.assert_called_once()
+  self.assertFalse(save.call_args.args[0]['publish_pending'])
+  run.assert_called_once()
+ def test_failed_publication_remains_pending(self):
+  from scripts import historical_browser_lane as lane
+  state={'publish_pending':True}
+  with patch.object(lane,'saved',return_value=state),patch.object(lane,'write_state') as save,patch.object(lane,'publish_release',side_effect=RuntimeError('publish failed')),patch.object(b,'run_group') as run:
+   with self.assertRaisesRegex(RuntimeError,'publish failed'):b.burst(1,5)
+  save.assert_not_called()
+  run.assert_not_called()

@@ -48,7 +48,10 @@ def batch(urls):
     stop=str(report.get('stop_reason') or '').lower()
     if 'manual_required' in stop or 'http_403' in stop or 'http_429' in stop:
         raise BrowserSiteHold('browser_site_access_restricted')
-    if result.returncode or report.get('stop_reason') or report.get('handoff_error') or report.get('failed'):
+    if report.get('handoff_error') and report.get('imported')==len(urls) and not report.get('stop_reason') and not report.get('failed'):
+        # Import ACKs are durable; an unrelated session handoff must not hide them.
+        report['handoff_warning']=True
+    elif result.returncode or report.get('stop_reason') or report.get('handoff_error') or report.get('failed'):
         raise RuntimeError('browser batch validation or transport failed')
     if report.get('imported')!=len(urls):raise RuntimeError('browser batch incomplete')
     return report
@@ -105,9 +108,12 @@ def main():
                     r=batch([x['url'] for x in following]);count+=r['imported'];complete+=r['complete']
             if complete:
                 state.pop('active_tid',None)
+                state['publish_pending']=True
                 write_state(state)
                 if not a.defer_publish:
                     publish_release()
+                    state['publish_pending']=False
+                    write_state(state)
             if not complete:
                 state['active_tid']=tid
                 write_state(state)

@@ -37,3 +37,13 @@ class HistoricalBrowserLaneTests(unittest.TestCase):
             with self.assertRaises(lane.BrowserSiteHold):lane.batch(['https://example.org/'])
     def test_inventory_counts(self):
         self.assertEqual(counts(self.db),{'complete':1,'incomplete':2})
+
+class HandoffResultTests(unittest.TestCase):
+    def test_confirmed_import_is_not_lost_on_handoff_failure(self):
+        import json
+        from subprocess import CompletedProcess
+        done={'imported':1,'complete':1,'failed':0,'stop_reason':None,'handoff_error':'NAS verifier unavailable'}
+        with patch.object(lane,'run_group',return_value=CompletedProcess([],2,json.dumps(done)+'\n','')):
+            result=lane.batch(['https://example.org/test'])
+        self.assertEqual(result['complete'],1)
+        self.assertTrue(result['handoff_warning'])

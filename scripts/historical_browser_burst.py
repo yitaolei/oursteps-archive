@@ -11,6 +11,13 @@ def burst(max_runs=3,max_pages=5):
     if not 1<=max_runs<=5 or not 1<=max_pages<=12:raise ValueError('invalid burst limits')
     runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
     results=[]
+    from scripts import historical_browser_lane as lane
+    state=lane.saved()
+    if state.get('publish_pending'):
+        lane.publish_release()
+        state=lane.saved()
+        state['publish_pending']=False
+        lane.write_state(state)
     try:
         for _ in range(max_runs):
             run=run_group([str(runtime),str(ROOT/'scripts/historical_browser_lane.py'),'--max-pages',str(max_pages),'--defer-publish'],text=True,timeout=1500)
@@ -23,8 +30,10 @@ def burst(max_runs=3,max_pages=5):
         # Successful NAS commits must be published even when a later lane
         # raises TimeoutExpired or an unexpected infrastructure exception.
         if any(x.get('publish_pending') for x in results):
-            from scripts.historical_browser_lane import publish_release
-            publish_release()
+            lane.publish_release()
+            state=lane.saved()
+            state['publish_pending']=False
+            lane.write_state(state)
     return {'runs':len(results),'pages_imported':sum(int(x.get('pages_imported',0)) for x in results),
             'threads_completed':sum(int(x.get('completed_pages',0)) for x in results),
             'results':results}
