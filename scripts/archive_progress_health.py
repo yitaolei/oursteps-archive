@@ -39,11 +39,15 @@ def report(history,sync,browser=None,now=None):
     recent_browser=(browser_result.get('status')=='completed' and isinstance(browser_result.get('at'),int)
                     and 0<=now-browser_result['at']<=6*3600)
     browser_site_hold=bool(browser.get('site_hold'))
+    failures=browser.get('failed') if isinstance(browser.get('failed'),dict) else {}
+    latest_failure=max((v.get('at',0) for v in failures.values() if isinstance(v,dict) and isinstance(v.get('at'),int)),default=0)
+    recent_failure=bool(latest_failure and 0<=now-latest_failure<=6*3600 and latest_failure>browser_result.get('at',0))
+    if recent_failure:recent_browser=False
     health=('BROWSER_SITE_HOLD' if browser_site_hold else
-            ('BROWSER_RECOVERY_PARTIAL' if recent_browser else 'BLOCKED') if history_halt else
+            ('BROWSER_RECOVERY_PARTIAL' if recent_browser else 'BROWSER_LANE_FAILED' if recent_failure else 'BLOCKED') if history_halt else
             'UNKNOWN' if pending is None else 'ACTIVE_OR_UNVERIFIED')
     return dict(checked_at=now,health=health,history_halt_seen=history_halt,
-                browser_lane_recent=recent_browser,browser_site_hold=browser_site_hold,
+                browser_lane_recent=recent_browser,browser_lane_recent_failure=recent_failure,browser_site_hold=browser_site_hold,
                 browser_lane_last_result=browser_result or None,
                 historical_complete=inventory_counts.get('complete'),
                 awaiting_backfill=pending,discovery_shards_remaining=missing,last_sync=last_sync)

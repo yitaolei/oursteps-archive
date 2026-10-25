@@ -32,3 +32,11 @@ class ProgressHealthTests(unittest.TestCase):
   x=report('', '',{'site_hold':{'reason':'browser_site_access_restricted'}},now=2000)
   self.assertEqual(x['health'],'BROWSER_SITE_HOLD')
   self.assertTrue(x['browser_site_hold'])
+
+ def test_newer_failure_supersedes_stale_success(self):
+  body='{"run_state": "halted: inspect existing halt before retrying"}'
+  browser={'last_result':{'status':'completed','at':1000},'failed':{'42':{'at':1200,'reason':'transport'}}}
+  x=report(body,'',browser,now=1300)
+  self.assertEqual(x['health'],'BROWSER_LANE_FAILED')
+  self.assertFalse(x['browser_lane_recent'])
+  self.assertTrue(x['browser_lane_recent_failure'])
