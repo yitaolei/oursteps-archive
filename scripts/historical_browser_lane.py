@@ -34,7 +34,7 @@ def write_state(state):
     tmp=STATE.with_suffix('.tmp');tmp.write_text(json.dumps(state,sort_keys=True)+'\n');tmp.replace(STATE)
 
 def record(state,tid,reason):
-    state.setdefault('failed',{})[str(tid)]={'at':int(time.time()),'reason':str(reason)[:120]}
+    state.setdefault('failed',{})[str(tid)]={'at':int(time.time()),'reason':str(reason)[:700]}
     state.pop('active_tid',None)
     write_state(state)
 
@@ -131,9 +131,14 @@ def multi_pilot(state,limit=3):
 
 def publish_release():
     host,_=deployment()
+    timings={}
     for command in ('scripts/publish_public.py','scripts/public_healthcheck.py'):
+        started=time.monotonic()
         result=run_group(ssh_argv(host)+[remote_python(command)],text=True,timeout=1200)
-        if result.returncode:raise RuntimeError('public release or healthcheck failed')
+        timings[command.rsplit('/',1)[-1]]=round(time.monotonic()-started,3)
+        if result.returncode:raise RuntimeError('public release or healthcheck failed:'+command)
+    print('HISTORICAL_PUBLISH_TIMING '+json.dumps(timings,sort_keys=True),file=sys.stderr,flush=True)
+
 
 
 def main():
