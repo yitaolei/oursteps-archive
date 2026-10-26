@@ -230,11 +230,16 @@ def session_result(page,context,saved,urls,historical=False):
 def arguments(argv=None):
     parser=argparse.ArgumentParser()
     parser.add_argument('--historical',action='store_true',help='One streaming session of up to 80 URLs; defer preview to launcher')
+    parser.add_argument('--follow-tid',type=int,help='After first imported page, query committed NAS continuation pages using same Chrome context')
+    parser.add_argument('--follow-limit',type=int,default=4)
     parser.add_argument('urls',nargs='+')
     args=parser.parse_args(argv)
     if len(args.urls)>(80 if args.historical else 20):
         parser.error('too many URLs (historical: 80; incremental: 20)')
     args.urls=list(dict.fromkeys(canonical_thread(value) for value in args.urls))
+    if args.follow_tid is not None:
+        if len(args.urls)!=1 or int(query(args.urls[0])['tid'])!=args.follow_tid or not 0<=args.follow_limit<=11 or args.historical:
+            parser.error('follow-tid requires exactly one canonical URL of same TID and limit 0..11')
     return args
 
 
@@ -251,6 +256,30 @@ def main():
             context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]},user_agent=AGENT)
             page=context.new_page()
             result=session_result(page,context,saved,args.urls,historical=args.historical)
+            if (args.follow_tid is not None and args.follow_limit and not result['stop_reason']
+                    and not result['handoff_error'] and not result['failed'] and result['imported']==1
+                    and not result['complete']):
+                host,_=deployment()
+                follow=run_group(ssh_argv(host)+[remote_python('scripts/historical_browser_candidates.py',
+                    '--tid',str(args.follow_tid),'--limit',str(args.follow_limit))],text=True,timeout=60)
+                if follow.returncode:
+                    result['stop_reason']='continuation_query_failed'
+                else:
+                    try:
+                        urls=[x['url'] for x in json.loads(follow.stdout.strip().splitlines()[-1])['items']]
+                        if urls and all(int(query(u)['tid'])==args.follow_tid for u in urls):
+                            next_result=session_result(page,context,saved,urls,historical=False)
+                            for key in ('attempted','imported','complete','partial','count','failed','previewed'):
+                                result[key]+=next_result[key]
+                            for key in ('items','failures'):
+                                result[key].extend(next_result[key])
+                            for key in ('stop_reason','handoff_error'):
+                                result[key]=result[key] or next_result[key]
+                        elif urls:
+                            result['stop_reason']='continuation_identity_mismatch'
+                    except (ValueError,IndexError,KeyError,TypeError):
+                        result['stop_reason']='continuation_query_invalid'
+
         finally:
             browser.close()
     result['elapsed_seconds']=round(time.monotonic()-started,6)

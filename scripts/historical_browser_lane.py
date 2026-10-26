@@ -38,11 +38,13 @@ def record(state,tid,reason):
     state.pop('active_tid',None)
     write_state(state)
 
-def batch(urls):
+def batch(urls,follow_tid=None,follow_limit=0):
     if not urls:return {'status':'empty','complete':0,'imported':0}
     if len(urls)>12:raise ValueError('pilot batch limit')
     runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
-    result=run_group([str(runtime),str(ROOT/'scripts/browser_fallback.py'),*urls],text=True,timeout=900)
+    cmd=[str(runtime),str(ROOT/'scripts/browser_fallback.py')]
+    if follow_tid is not None:cmd+=['--follow-tid',str(follow_tid),'--follow-limit',str(follow_limit)]
+    result=run_group(cmd+list(urls),text=True,timeout=900)
     try:report=json.loads(result.stdout.strip().splitlines()[-1])
     except (IndexError,ValueError):raise RuntimeError('browser result not valid JSON')
     stop=str(report.get('stop_reason') or '').lower()
@@ -54,7 +56,7 @@ def batch(urls):
     elif result.returncode or report.get('stop_reason') or report.get('handoff_error') or report.get('failed'):
         detail={'stage':'browser_batch','exit_code':result.returncode,'imported':report.get('imported',0),'failed':report.get('failed',0),'stop_kind':str(report.get('stop_reason') or '')[:100], 'handoff':bool(report.get('handoff_error')), 'failure_kinds':[str(x.get('error','')).split(':',1)[0][:50] for x in report.get('failures',[]) if isinstance(x,dict)][:12]}
         raise RuntimeError('browser_batch_diagnostic:'+json.dumps(detail,separators=(',',':')))
-    if report.get('imported')!=len(urls):raise RuntimeError('browser batch incomplete')
+    if report.get('imported',0)<len(urls):raise RuntimeError('browser batch incomplete')
     return report
 
 def choose(state,limit=100):
@@ -102,7 +104,7 @@ def main():
         tid=item['tid'];count=0;complete=0
         try:
             if item['page']==1:
-                r=batch([item['url']]);count+=r['imported'];complete+=r['complete']
+                r=batch([item['url']],follow_tid=tid,follow_limit=a.max_pages-1);count+=r['imported'];complete+=r['complete']
             if count<a.max_pages and not complete:
                 following=remote_json('scripts/historical_browser_candidates.py','--tid',str(tid),'--limit',str(a.max_pages-count))['items']
                 if following:
