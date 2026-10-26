@@ -25,6 +25,9 @@ def burst(max_runs=3,max_pages=5):
             except (ValueError,IndexError):
                 report={'status':'invalid_child_result'}
             results.append(report)
+            for line in (run.stderr or '').splitlines():
+                if line.startswith('HISTORICAL_PUBLISH_TIMING '):
+                    print(line,file=sys.stderr,flush=True)
             if report.get('status')=='held' and not lane.saved().get('site_hold'):
                 # Isolated per-thread parse/import failure: recorded by lane;
                 # continue to the next eligible TID, never retry this TID here.
