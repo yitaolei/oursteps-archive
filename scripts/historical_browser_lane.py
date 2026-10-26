@@ -73,6 +73,39 @@ def choose(state,limit=100):
             if str(item['tid']) not in state.get('failed',{}):return item
     return None
 
+def choose_multi(state,limit=5):
+    """Select distinct never-started TIDs for one bounded Chrome visit sequence."""
+    if not 1<=limit<=5:raise ValueError('multi batch limit 1..5')
+    if state.get('active_tid') or state.get('site_hold'):return []
+    entries=remote_json('scripts/historical_browser_candidates.py','--limit','100')['items']
+    result=[];seen=set()
+    for entry in entries:
+        tid=entry['tid']
+        if tid in seen or str(tid) in state.get('failed',{}):continue
+        if entry['page']!=1:continue
+        result.append(entry);seen.add(tid)
+        if len(result)==limit:break
+    return result
+
+def apply_multi_result(state,chosen,report):
+    """Checkpoint per-TID ACKs, without calling this a completed batch on failure."""
+    chosen_ids={int(x['tid']) for x in chosen}
+    succeeded=set();completed=set()
+    for item in report.get('items',[]):
+        tid=int(query(item['url'])['tid'])
+        if tid not in chosen_ids:raise RuntimeError('multi_result_unselected_tid')
+        succeeded.add(tid)
+        if item.get('thread_status')=='complete':completed.add(tid)
+    for item in report.get('failures',[]):
+        url=item.get('url')
+        if not url:continue
+        tid=int(query(url)['tid'])
+        if tid not in chosen_ids:raise RuntimeError('multi_failure_unselected_tid')
+        state.setdefault('failed',{})[str(tid)]={'at':int(time.time()),'reason':'browser_page_failed'}
+    if completed:state['publish_pending']=True
+    write_state(state)
+    return {'imported':len(succeeded),'complete':len(completed),'failed':len(state.get('failed',{}))}
+
 def publish_release():
     host,_=deployment()
     for command in ('scripts/publish_public.py','scripts/public_healthcheck.py'):

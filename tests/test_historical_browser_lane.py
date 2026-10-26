@@ -47,3 +47,31 @@ class HandoffResultTests(unittest.TestCase):
             result=lane.batch(['https://example.org/test'])
         self.assertEqual(result['complete'],1)
         self.assertTrue(result['handoff_warning'])
+
+class MultiTidPlanningTests(unittest.TestCase):
+    def test_selects_distinct_tids_excluding_failures(self):
+        rows=[{'tid':t,'page':1,'url':f'u{t}'} for t in (8,7,6,5)]
+        with patch.object(lane,'remote_json',return_value={'items':rows}):
+            chosen=lane.choose_multi({'failed':{'7':{'reason':'parse'}}},limit=3)
+        self.assertEqual([x['tid'] for x in chosen],[8,6,5])
+    def test_refuses_multi_when_active_or_site_hold(self):
+        with patch.object(lane,'remote_json') as remote:
+            self.assertEqual(lane.choose_multi({'active_tid':9}),[])
+            self.assertEqual(lane.choose_multi({'site_hold':{'reason':'access'}}),[])
+        remote.assert_not_called()
+    def test_isolated_per_tid_committed_results(self):
+        from oursteps.parser import thread_url
+        chosen=[{'tid':101},{'tid':102}]
+        state={'failed':{}}
+        result={'items':[{'url':thread_url(101,1),'thread_status':'complete'}],
+                'failures':[{'url':thread_url(102,1),'error':'ParseError'}]}
+        with patch.object(lane,'write_state') as save:
+            outcome=lane.apply_multi_result(state,chosen,result)
+        self.assertEqual(outcome['complete'],1)
+        self.assertIn('102',state['failed'])
+        self.assertTrue(state['publish_pending'])
+        save.assert_called_once()
+    def test_rejects_unselected_ack(self):
+        from oursteps.parser import thread_url
+        with self.assertRaisesRegex(RuntimeError,'unselected_tid'):
+            lane.apply_multi_result({},[{'tid':101}],{'items':[{'url':thread_url(999,1)}]})
