@@ -38,7 +38,7 @@ def record(state,tid,reason):
     state.pop('active_tid',None)
     write_state(state)
 
-def batch(urls,follow_tid=None,follow_limit=0):
+def batch(urls,follow_tid=None,follow_limit=0,allow_partial=False):
     if not urls:return {'status':'empty','complete':0,'imported':0}
     if len(urls)>12:raise ValueError('pilot batch limit')
     runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
@@ -50,6 +50,8 @@ def batch(urls,follow_tid=None,follow_limit=0):
     stop=str(report.get('stop_reason') or '').lower()
     if 'manual_required' in stop or 'http_403' in stop or 'http_429' in stop:
         raise BrowserSiteHold('browser_site_access_restricted')
+    if allow_partial and not report.get('stop_reason') and not report.get('handoff_error') and report.get('imported',0)+report.get('failed',0)==len(urls):
+        return report
     if report.get('handoff_error') and report.get('imported')==len(urls) and not report.get('stop_reason') and not report.get('failed'):
         # Import ACKs are durable; an unrelated session handoff must not hide them.
         report['handoff_warning']=True
@@ -106,6 +108,27 @@ def apply_multi_result(state,chosen,report):
     write_state(state)
     return {'imported':len(succeeded),'complete':len(completed),'failed':len(state.get('failed',{}))}
 
+def multi_pilot(state,limit=3):
+    """One Chrome handles up to three never-attempted page-1 threads."""
+    items=choose_multi(state,limit)
+    if not items:return {'status':'no_eligible_inventory','pages_imported':0,'completed_pages':0}
+    tids=[x['tid'] for x in items]
+    try:
+        report=batch([x['url'] for x in items],allow_partial=True)
+        summary=apply_multi_result(state,items,report)
+        result={'status':'completed','tids':tids,'pages_imported':summary['imported'],
+                'completed_pages':summary['complete'],'publish_pending':bool(summary['complete']),
+                'at':int(time.time())}
+        state['last_result']=result
+        try:state['inventory_counts']=remote_json('scripts/historical_browser_candidates.py','--counts')['counts']
+        except (RuntimeError,ValueError,KeyError):pass
+        write_state(state)
+        return result
+    except BrowserSiteHold:
+        state['site_hold']={'at':int(time.time()),'reason':'browser_site_access_restricted'}
+        write_state(state)
+        raise
+
 def publish_release():
     host,_=deployment()
     for command in ('scripts/publish_public.py','scripts/public_healthcheck.py'):
@@ -115,7 +138,7 @@ def publish_release():
 
 def main():
     if sys.platform!='darwin':raise SystemExit('Browser lane must run on Mac Studio')
-    p=argparse.ArgumentParser();p.add_argument('--max-pages',type=int,default=5);p.add_argument('--defer-publish',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--max-pages',type=int,default=5);p.add_argument('--defer-publish',action='store_true');p.add_argument('--multi-tid-pilot',action='store_true');a=p.parse_args()
     if not 1<=a.max_pages<=12:p.error('max pages must be 1..12')
     LOCK.parent.mkdir(parents=True,exist_ok=True)
     with LOCK.open('a') as lock:
@@ -131,6 +154,14 @@ def main():
             print(json.dumps({'status':'skipped','reason':'archive_worker_busy'}));return
         if probe.returncode:
             raise RuntimeError('archive worker state unavailable')
+        if a.multi_tid_pilot:
+            try:
+                result=multi_pilot(state)
+                if result.get('publish_pending') and not a.defer_publish:
+                    publish_release();state['publish_pending']=False;write_state(state)
+                print(json.dumps(result,separators=(',',':')));return
+            except BrowserSiteHold:
+                print(json.dumps({'status':'site_hold','reason':'browser_site_access_restricted'}));raise SystemExit(2)
         item=choose(state)
         if item is None:
             print(json.dumps({'status':'no_eligible_inventory'}));return

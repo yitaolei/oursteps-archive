@@ -75,3 +75,25 @@ class MultiTidPlanningTests(unittest.TestCase):
         from oursteps.parser import thread_url
         with self.assertRaisesRegex(RuntimeError,'unselected_tid'):
             lane.apply_multi_result({},[{'tid':101}],{'items':[{'url':thread_url(999,1)}]})
+
+class MultiTidPilotExecutionTests(unittest.TestCase):
+    def test_multiple_completed_articles_one_browser_call(self):
+        from oursteps.parser import thread_url
+        entries=[{'tid':101,'url':thread_url(101,1)},{'tid':102,'url':thread_url(102,1)}]
+        report={'items':[{'url':thread_url(101,1),'thread_status':'complete'},
+                         {'url':thread_url(102,1),'thread_status':'complete'}],
+                'failures':[]}
+        state={'failed':{}}
+        with patch.object(lane,'choose_multi',return_value=entries),patch.object(lane,'batch',return_value=report) as browser,patch.object(lane,'write_state'),patch.object(lane,'remote_json',return_value={'counts':{'complete':2,'incomplete':0}}):
+            output=lane.multi_pilot(state,2)
+        browser.assert_called_once_with([x['url'] for x in entries],allow_partial=True)
+        self.assertEqual(output['completed_pages'],2)
+        self.assertTrue(state['publish_pending'])
+    def test_access_denial_sets_persistent_hold_without_next_thread(self):
+        state={'failed':{}}
+        entries=[{'tid':101,'url':'url1'},{'tid':102,'url':'url2'}]
+        with patch.object(lane,'choose_multi',return_value=entries),patch.object(lane,'batch',side_effect=lane.BrowserSiteHold('denied')) as browser,patch.object(lane,'write_state') as save:
+            with self.assertRaises(lane.BrowserSiteHold):lane.multi_pilot(state,2)
+        self.assertEqual(browser.call_count,1)
+        self.assertEqual(state['site_hold']['reason'],'browser_site_access_restricted')
+        save.assert_called_once()
