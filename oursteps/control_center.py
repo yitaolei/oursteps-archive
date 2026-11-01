@@ -53,4 +53,39 @@ def snapshot(root,full_public,recent_1y):
 
 def files(root,full_public,recent_1y):
     data=json.dumps(snapshot(root,full_public,recent_1y),ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n'
+    # Studio primary serves static releases: no control-action API is deployed.
+    import os
+    if os.environ.get('OURSTEPS_STUDIO_PRIMARY_EXPERIMENT') == '1':
+        status=json.loads(data)
+        status['actions']=[]
+        # Sanitized Studio automation receipt, generated from local logs at publish time.
+        from pathlib import Path as _Path
+        log=_Path.home()/'Library/Logs/oursteps-studio-backfill.log'
+        recent=None
+        try:
+            for line in log.read_text().splitlines():
+                if line.startswith('BACKFILL_METRICS '):
+                    recent=json.loads(line[len('BACKFILL_METRICS '):])
+        except (OSError,ValueError): pass
+        health=_json(root/'data/studio-health.json')
+        safe_metrics={k:recent.get(k) for k in ('started_at','elapsed_seconds','new_complete','new_snapshots','worker_exit')} if isinstance(recent,dict) else None
+        status['studio_automation']={'backfill':safe_metrics,'health':{'status':health.get('status'),'time':health.get('time'),'sqlite':health.get('checks',{}).get('sqlite')},'note':'Snapshot at website publication; not a live worker feed'}
+        status['schedules']=[{'id':'studio_primary_cycle','label':'Studio Primary Sync + Publish','schedule':'Every 3600 seconds (LaunchAgent)'}]
+        data=json.dumps(status,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n'
+        html=HTML.replace('状态快照 + 固定安全动作','Studio 本地生产状态快照（只读）').replace('SAFE ACTIONS','READ ONLY').replace('Mac mini runner 仅执行硬编码 allowlist。Rollback 仍为 Terminal-only，不提供网页按钮。','Studio 生产任务通过 macOS LaunchAgent 调度；网页动作接口尚未启用。Rollback 仍为 Terminal-only。')
+        js=JS.replace("loadJobs();loadWorker();setInterval(loadJobs,5000);setInterval(loadWorker,5000)","el('jobs').textContent='Studio 手动动作接口尚未启用';el('worker').textContent='Studio 自动抓取及发布由本机 LaunchAgent 执行；实时状态接口尚未启用'")
+        html=html.replace('<section><h2>Archive Worker</h2>', '<section><h2>Studio 自动化运行摘要</h2><div id="studio-automation" class="panel">读取中…</div></section><section><h2>Archive Worker</h2>')
+        js=js.replace("cfg=d;el('summary')", "cfg=d;const a=d.studio_automation||{},b=a.backfill||{},h=a.health||{};el('studio-automation').textContent='上轮回填：新增完整 '+(b.new_complete??'—')+' 篇，新增快照 '+(b.new_snapshots??'—')+'，耗时 '+(b.elapsed_seconds??'—')+' 秒；健康检查 '+(h.status??'—')+'；数据库 '+(h.sqlite??'—')+'。数据为最近发布时的快照，并非实时监控。';el('summary')")
+        html=html.replace('<section><h2>Archive Worker</h2>', '<section><h2>手动 Incremental Sync Now（Studio）</h2><div class="panel"><p>仅 OSowner 可操作，执行 Studio 本地增量抓取及发布。</p><button id="studio-sync-now" type="button">Incremental Sync Now</button><p id="studio-sync-state">读取状态中…</p></div></section><section><h2>Archive Worker</h2>')
+        js += """
+async function refreshStudioManual(){try{const r=await fetch('/studio-action/status',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const j=(await r.json()).job||{};document.getElementById('studio-sync-state').textContent='状态：'+(j.state||'idle')+'；'+(j.message||'')+'；开始：'+(j.started_at?new Date(j.started_at*1000).toLocaleString('zh-CN'):'—');document.getElementById('studio-sync-now').disabled=j.state==='running'||j.state==='queued'}catch(e){document.getElementById('studio-sync-state').textContent='状态读取失败：'+e.message}}
+document.getElementById('studio-sync-now').addEventListener('click',async()=>{if(!confirm('确认立即在 Studio 上执行 Incremental Sync Now？'))return;const b=document.getElementById('studio-sync-now');b.disabled=true;try{const r=await fetch('/studio-action/incremental-sync',{method:'POST',headers:{'X-Oursteps-Action-Request':'1'}});if(!r.ok)throw Error('HTTP '+r.status);await refreshStudioManual()}catch(e){document.getElementById('studio-sync-state').textContent='提交失败：'+e.message;b.disabled=false}});
+refreshStudioManual();setInterval(refreshStudioManual,5000);
+"""
+        # Poll only the owner-protected JSON alias; no direct access to logs or SQLite.
+        js += """
+async function refreshStudioAutomation(){try{const r=await fetch('/studio-status/automation.json',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json(),b=d.backfill||{},m=b.latest||{},c=d.checks||{};const when=x=>x?new Date(Number(x)*1000).toLocaleString('zh-CN',{hour12:false}):'暂无';document.getElementById('studio-automation').textContent='健康状态：'+(d.status||'未知')+'；SQLite：'+(c.sqlite||'未知')+'；Complete：'+(c.complete??'—')+'；历史回填上次执行：'+when(m.started_at)+'；新增完整：'+(m.new_complete??'—')+'；新增快照：'+(m.new_snapshots??'—')+'；连续零增长：'+(b.zero_growth_streak??'—')+' 次；最近文章增长：'+when(b.last_article_growth_at)+'；检查更新：'+when(d.time)+'；告警：'+((d.alerts||[]).join('、')||'无')}catch(e){document.getElementById('studio-automation').textContent='实时状态暂不可用：'+e.message}}
+refreshStudioAutomation();setInterval(refreshStudioAutomation,30000);
+"""
+        return {'control-center.html':html.encode(),'control-center.css':CSS.encode(),'control-center.js':js.encode(),'control-center.json':data.encode()}
     return {"control-center.html":HTML.encode(),"control-center.css":CSS.encode(),"control-center.js":JS.encode(),"control-center.json":data.encode()}
