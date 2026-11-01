@@ -23,8 +23,8 @@ with (DATA/'studio-primary-cycle.lock').open('a+') as lock:
     env=os.environ.copy();env['OURSTEPS_STUDIO_PRIMARY_EXPERIMENT']='1'
     env.pop('OURSTEPS_NAS_HOST',None);env.pop('OURSTEPS_NAS_PROJECT',None)
     before=metrics();started_at=time.time()
-    args=[sys.executable,'scripts/history_worker.py','backfill','--data',str(DATA),'--best-effort','--max-threads','10','--max-minutes','20']
-    rc=subprocess.run(args,cwd=ROOT,env=env,timeout=1500).returncode
+    args=[sys.executable,'scripts/history_worker.py','backfill','--data',str(DATA),'--best-effort','--max-threads','60','--max-minutes','45']
+    rc=subprocess.run(args,cwd=ROOT,env=env,timeout=3000).returncode
     after=metrics()
     # Worker may return 0 for a deliberate access-window pause. Preserve this distinction.
     reason='unknown'

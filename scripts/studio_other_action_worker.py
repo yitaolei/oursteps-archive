@@ -20,7 +20,7 @@ try:
   with (DATA/'studio-primary-cycle.lock').open('a') as lock:
    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
    rc=subprocess.run([sys.executable,*args],cwd=ROOT,env=env,timeout=420).returncode
- else:rc=subprocess.run([sys.executable,*args],cwd=ROOT,env=env,timeout=1800).returncode
+ else:rc=subprocess.run([sys.executable,*args],cwd=ROOT,env=env,timeout=3600).returncode
 except (BlockingIOError,subprocess.TimeoutExpired):rc=2
 waiting=False
 if action=='historical-backfill' and rc==0:
