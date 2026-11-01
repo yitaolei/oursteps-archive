@@ -142,3 +142,9 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Initial deployed owner UI and loopback API worked, but 18751 HTTPS returned 500 because the Apache owner-only LocationMatch allowlist omitted `worker-status`. Corrected `studio-apache-private/httpd-auth-test.conf` to admit `/studio-action/worker-status` under the existing authenticated action proxy. Apache syntax test PASS and graceful reload completed; unauthenticated 18751 access returns expected 401.
 - Verified Studio worker probe reports IDLE and scheduled next run; read-only daily acceptance remains PASS (16 of 16 current-day articles). Authenticated browser-rendered panel still requires owner visual confirmation; do not claim that credentialed UI access was independently tested.
 - This is a machine-local private Apache config edit, not a Git-tracked credential/config export. Back up and incorporate the whitelist into any future Apache config provisioning to avoid regression.
+
+## 2026-11-02 08:25 AEDT production wiring regression gate
+
+- Added `scripts/studio_production_regression.py`, a non-destructive regression check for owner-only Apache worker-status routing, safe Apache syntax, the live local status API, manual priority signal, historical safe-yield, manual lock wait, daytime ten-page limit and bounded batch browser recovery.
+- All 10 checks passed on the Studio runtime. These are wiring / live API smoke checks, **not** synthetic concurrent-writer or full end-to-end preemption tests; those still need controlled tests. Current 16/16 daily content acceptance also passed earlier today.
+- Refrained from invoking legacy `studio_apache_staging_setup.py`: it provisions isolated older staging, not the current 18751 authenticated production config, and would risk overwriting live owner restrictions.
