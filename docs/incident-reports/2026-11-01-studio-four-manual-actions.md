@@ -68,3 +68,11 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Added append-only `data/studio-backfill-runs.jsonl` to the Studio historical cycle. Each completed worker invocation records starting timestamp, duration, before/after complete and snapshot counts, number of new complete articles, new snapshots, source network fetches, started threads, worker exit and worker status. The file is Studio-local runtime data, **not** included in Git.
 - Verified the new receipt writer with a real outside-window backfill cycle: `waiting_window`, 0 network fetches, 0 new snapshots and complete threads. The no-op publishing guard still avoided release regeneration.
 - This makes scheduled run outcomes independently auditable after the first allowed 02:15 AEDT cycle; it does not assert that a future run has already occurred or gained articles.
+
+## 2026-11-02 05:27 AEDT overnight evidence and candidate-priority correction
+
+- 02:15 scheduled batch: 11 HTTP fetches, 10 new stored snapshots, zero newly complete articles, `budget_reached`.
+- 04:15 scheduled batch: 11 HTTP fetches, 10 new stored snapshots, zero newly complete articles, `budget_reached`.
+- Read-only inspection demonstrated both batches attempted the same 10 TIDs, each returned `retry_later:incomplete_html` (incomplete/challenge pages); earlier due-first candidate ordering inadvertently prioritized these repeated unsuccessful retries ahead of new work.
+- Corrected `oursteps/history.py` ordering to prioritize genuinely pending jobs first, then previously unqueued inventory threads, then eligible retry_later jobs. Retains existing retry policy, site robots window, shared writer lock and fixed throughput budget.
+- Ran a bounded live Studio recovery batch inside the published visit window. During execution at 05:29 AEDT, Studio SQLite count had already advanced from 15,162 to 15,167 complete articles. Final after-run counts and release verification must be recorded separately.
