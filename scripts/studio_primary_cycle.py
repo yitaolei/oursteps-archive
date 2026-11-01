@@ -41,6 +41,14 @@ def cycle(*, execute=False):
                 with __import__('sqlite3').connect((local/'archive.sqlite3').resolve().as_uri()+'?mode=ro',uri=True) as db:
                     deferred=db.execute("SELECT count(*) FROM threads t JOIN jobs j ON j.tid=t.tid AND j.page=1 WHERE t.status!='complete' AND t.discovered_via='daily-challenge' AND j.state IN ('retry_later','auth_required')").fetchone()[0]
                 incomplete=deferred>0
+                # CLI writes a structured receipt even when discovery failed before a TID was queued.
+                try:
+                    import json
+                    summary=json.loads((local/'sync-summary.json').read_text())
+                    if summary.get('status')!='success' or summary.get('discovery_complete') is False:
+                        incomplete=True
+                except (OSError,ValueError,TypeError):
+                    incomplete=True
 
         subprocess.run([sys.executable,'scripts/studio_first_page_preview.py'],cwd=ROOT,env=env,check=True,timeout=180)
     # Refresh both Studio HTTPS endpoints after a successful manual/automatic sync.
@@ -74,7 +82,11 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('--execute',action='store_true')
     args=p.parse_args()
-    try: print(cycle(execute=args.execute),flush=True)
+    try:
+        result=cycle(execute=args.execute)
+        print(result,flush=True)
+        if args.execute and isinstance(result,int):
+            raise SystemExit(result)
     except (ValueError,OSError,subprocess.TimeoutExpired) as e:
         print('STUDIO_CYCLE_FAILED '+str(e),file=sys.stderr)
         raise SystemExit(2)
