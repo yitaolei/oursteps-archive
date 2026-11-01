@@ -4,34 +4,34 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];STATE=ROOT/'data/studio-manual-sync.json'
 env_priority=os.environ.copy();env_priority['OURSTEPS_MANUAL_PRIORITY']='1'
 result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,env=env_priority,timeout=1800)
-# One bounded, authenticated local browser recovery for newly deferred first pages.
+# Recover a bounded batch of verified current-day challenge pages, not just one.
+# Every page uses the existing authorized browser importer and validation.
 if result.returncode in (2,3):
  try:
-  # CLI uses exit 2 for retry_later before it reaches the publish step.
-  # Only attempt authorized browser recovery when the structured receipt
-  # explicitly supplies a fallback thread URL.
-  summary=json.loads((ROOT/'data/sync-summary.json').read_text())
-  if result.returncode==2 and (summary.get('status') not in ('retry_later','unexpected_layout') or not summary.get('browser_fallback_url')):
-   raise ValueError('no_browser_recovery_target')
-  import sqlite3
-  d=sqlite3.connect((ROOT/'data/archive.sqlite3').resolve().as_uri()+'?mode=ro',uri=True)
-  ids=[r[0] for r in d.execute("SELECT t.tid FROM threads t JOIN jobs j ON j.tid=t.tid AND j.page=1 WHERE t.status!='complete' AND t.discovered_via='daily-challenge' AND j.state='retry_later' ORDER BY t.tid DESC LIMIT 1")]
-  d.close()
-  if not ids:
-   import re
-   summary=json.loads((ROOT/'data/sync-summary.json').read_text())
-   match=re.search(r'[?&]tid=(\d+)(?:&|$)',summary.get('browser_fallback_url',''))
-   if match: ids=[int(match.group(1))]
-  if ids:
-   browser=Path.home()/'.local/share/oursteps-runtime/bin/python'
-   env=os.environ.copy();env['OURSTEPS_STUDIO_PRIMARY_EXPERIMENT']='1'
-   attempt=subprocess.run([str(browser),str(ROOT/'scripts/studio_browser_recover_one.py'),str(ids[0])],cwd=ROOT,env=env,timeout=120)
-   if attempt.returncode==0:
-    flushed=subprocess.run([sys.executable,str(ROOT/'scripts/studio_flush_browser_preview.py')],cwd=ROOT,env=env,timeout=180)
-    if flushed.returncode==0:
-     result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,env={**env,'OURSTEPS_MANUAL_PRIORITY':'1'},timeout=1800)
-     print('STUDIO_BROWSER_RECOVERY_RESULT',result.returncode,flush=True)
- except (OSError,ValueError,subprocess.TimeoutExpired) as error:
+  import re,sqlite3
+  env=os.environ.copy();env['OURSTEPS_STUDIO_PRIMARY_EXPERIMENT']='1'
+  browser=Path.home()/'.local/share/oursteps-runtime/bin/python'
+  attempted=set();recovered=0
+  for round_number in range(3):
+   receipt=json.loads((ROOT/'data/sync-summary.json').read_text())
+   db=sqlite3.connect((ROOT/'data/archive.sqlite3').resolve().as_uri()+'?mode=ro',uri=True)
+   try:
+    ids=[r[0] for r in db.execute("SELECT t.tid FROM threads t JOIN jobs j ON j.tid=t.tid AND j.page=1 WHERE t.status!='complete' AND t.discovered_via='daily-challenge' AND j.state='retry_later' ORDER BY t.tid DESC LIMIT 40")]
+   finally:db.close()
+   match=re.search(r'[?&]tid=(\d+)(?:&|$)',receipt.get('browser_fallback_url',''))
+   if match:ids.append(int(match.group(1)))
+   targets=[tid for tid in dict.fromkeys(ids) if tid not in attempted][:20]
+   if not targets:break
+   for tid in targets:
+    attempted.add(tid)
+    attempt=subprocess.run([str(browser),str(ROOT/'scripts/studio_browser_recover_one.py'),str(tid)],cwd=ROOT,env=env,timeout=120)
+    if attempt.returncode==0:recovered+=1
+   if recovered:
+    subprocess.run([sys.executable,str(ROOT/'scripts/studio_flush_browser_preview.py')],cwd=ROOT,env=env,timeout=180,check=True)
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,env={**env,'OURSTEPS_MANUAL_PRIORITY':'1'},timeout=1800)
+   print('STUDIO_BATCH_BROWSER_RECOVERY',{'round':round_number+1,'attempted':len(attempted),'recovered':recovered,'cycle_exit':result.returncode},flush=True)
+   if result.returncode==0:break
+ except (OSError,ValueError,subprocess.TimeoutExpired,subprocess.CalledProcessError) as error:
   print('STUDIO_RECOVERY_DEFERRED',type(error).__name__,flush=True)
 # When the current-day listing is partially challenged, publish all already verified
 # local articles rather than hiding them behind the next blocked page.
