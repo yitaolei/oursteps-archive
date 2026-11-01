@@ -26,3 +26,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - UI manual status is a single latest-job record, not yet a durable queue/history; no overlapping manual jobs are launched when a running PID is live.
 - Confirm all scheduled jobs and optional browser fallback run in the correct access window. Do not bypass site rate limits or challenges.
 - NAS 8448 has NOT switched. Old NAS writers remain disabled and NAS is retained for rollback.
+
+## Manual acceptance update, 2026-11-01 15:25 AEDT
+
+- Guide Discovery V2 was invoked through the Studio local action API. It transitioned `running` to `succeeded` (exit 0), reporting `pass_complete` and no new discovery work because the current guide pass had reached its end.
+- Historical Backfill was invoked through the same action API. It transitioned to an exited worker state and passed an unchanged release validation. The worker reported `waiting_window`, zero new snapshots and zero new complete threads; this is a valid access-window pause **not proof of actual backfill throughput**. The manual worker now identifies this condition as `deferred` rather than `succeeded` on future runs.
+- Studio SQLite `PRAGMA quick_check` returned `ok`, with 15,162 complete articles. NAS source DB modification time remained 2026-11-01 10:07:30 AEDT.
+- Still required: real `OStester` denial test; browser click tests for all actions; a manual backfill run during a permitted window to demonstrate newly archived articles; stale PID and multi-worker fault tests.

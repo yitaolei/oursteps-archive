@@ -22,7 +22,13 @@ try:
    rc=subprocess.run([sys.executable,*args],cwd=ROOT,env=env,timeout=420).returncode
  else:rc=subprocess.run([sys.executable,*args],cwd=ROOT,env=env,timeout=1800).returncode
 except (BlockingIOError,subprocess.TimeoutExpired):rc=2
-result={'state':'succeeded' if rc==0 else 'failed','finished_at':time.time(),'exit_code':rc,'message':action+' completed' if rc==0 else action+' failed or busy; check log'}
+waiting=False
+if action=='historical-backfill' and rc==0:
+ try:
+  outcome=json.loads((DATA/'backfill-performance.json').read_text())
+  waiting=outcome.get('status')=='waiting_window'
+ except (OSError,ValueError,TypeError):pass
+result={'state':'deferred' if waiting else ('succeeded' if rc==0 else 'failed'),'finished_at':time.time(),'exit_code':rc,'message':action+' waiting for permitted access window' if waiting else (action+' completed' if rc==0 else action+' failed or busy; check log')}
 try:
  current=json.loads(STATE.read_text())
  if current.get('pid')==os.getpid():
