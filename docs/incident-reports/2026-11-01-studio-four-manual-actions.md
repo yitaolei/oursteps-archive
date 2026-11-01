@@ -40,3 +40,11 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Reviewed owner-only Apache proxy: `^/studio-action/(?:status|incremental-sync|guide-discovery|historical-backfill|publish-release)$` is Basic Auth `Require user OSowner`. Anonymous and role-specific outcomes are distinct; live OStester negative test is still required.
 - Added `studio_manual_sync_api.py` stale-running status detection: if the stored worker PID no longer exists, the job is marked failed rather than staying indefinitely `running`. Source compiled, service restarted, existing finished receipt remained readable. The crash path still needs a controlled fault test.
 - Manual backfill's historical success receipt was created before the `waiting_window` -> `deferred` patch, so it still says `succeeded`. Future receipts should report the corrected state; do not rewrite old evidence retroactively.
+
+## 15:30 AEDT access-window alignment and auth review
+
+- Found `oursteps.fetch.Fetcher` enforces the 14:00-22:00 UTC source-site access window. At 15:30 AEDT (04:30 UTC) the user-facing manual backfill cannot truthfully demonstrate throughput; its `waiting_window` result is expected. No bypass was used.
+- Replaced Studio `local.oursteps.studio-primary-backfill` StartInterval=7200 with four local Sydney calendar starts: 02:15, 04:15, 06:15, 07:45. These fall in 14:00-22:00 UTC in both AEDT and AEST. The LaunchAgent was reloaded and schedule entries verified.
+- Anonymous requests to full archive index, TID 1905193, first-page review, Studio health JSON, Studio manual action status and action path, and recent-one-year index all returned HTTP 401. Apache syntax and `Require user OSowner` rules were reviewed.
+- Real `OStester` authorization denial and `OSowner` acceptance tests are **not yet validated in this run**; passwords were not requested or stored. Actual in-window throughput still needs an observed scheduled batch with positive fetch/complete counters.
+- Frozen NAS SQLite baseline modification time remained 2026-11-01 10:07:30 AEDT.

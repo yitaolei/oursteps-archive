@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>OURSTEPS_STUDIO_PRIMARY_EXPERIMENT</key>
+		<string>1</string>
+		<key>OURSTEPS_STUDIO_WRITER_HANDOVER_APPROVED</key>
+		<string>1</string>
+	</dict>
+	<key>Label</key>
+	<string>local.oursteps.studio-primary-backfill</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/bin/python3</string>
+		<string>/Users/ylei/Library/Application Support/OurSteps/studio-primary-runtime/scripts/studio_primary_backfill_cycle.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/Users/ylei/Library/Logs/oursteps-studio-backfill.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/ylei/Library/Logs/oursteps-studio-backfill.log</string>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>2</integer>
+			<key>Minute</key>
+			<integer>15</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>4</integer>
+			<key>Minute</key>
+			<integer>15</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>6</integer>
+			<key>Minute</key>
+			<integer>15</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>7</integer>
+			<key>Minute</key>
+			<integer>45</integer>
+		</dict>
+	</array>
+</dict>
+</plist>
