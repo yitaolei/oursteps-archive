@@ -91,3 +91,9 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Fixed manual worker to consider CLI exit 2 for retry_later, extract the latest safe TID from the structured browser fallback URL, attempt one bounded authorized local browser import, and report partial instead of false success on outstanding challenge pages. Added automatic partial publish/HTTPS refresh for already verified articles.
 - Local browser successfully imported TID 1905222 as complete and flushed preview. Other new TIDs 1905221, 1905220, 1905219 still saw incomplete HTML; do not claim discovery_complete.
 - Manually published local release fb4cf81ad5ed4331fba50881ece236babc470fc5bb0c7c80af5f57c387571cd2, post-publish PASS with 15,276 complete and 4,459 recent; Studio index contains 1905222 on 2026-11-02. This is a verified partial recovery, not yet full daily discovery.
+
+## 2026-11-02 07:46 AEDT multi-post challenge starvation
+
+- Source-site screenshot shows numerous 2026-11-02 posts while Studio TODAY page only one item. The old daily incremental algorithm stopped directory scanning when the fourth challenged first page appeared (`len(deferred_threads)<3`), despite a valid authenticated directory listing. Browser rescue was also bounded to only one article per invocation.
+- Patched `oursteps/sync.py` to queue every `retry_later:incomplete_html` first-page candidate as `daily-challenge`/`retry_later` and continue scanning the remainder of the verified daily listing. It must not mark challenged HTML as complete or bypass robots rules. This preserves 'publish all verified, defer unresolved' behavior without imposing an arbitrary limit of three challenged articles.
+- Compiled Python module. Attempted immediate live daily cycle but Studio 07:45 scheduled historical worker already held the shared production lock; no concurrent database writer was forced. The corrected multi-post daily scan remains **pending live run after the lock releases**.

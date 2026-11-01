@@ -132,9 +132,13 @@ def sync(store,day=None,now=False):
                         try:
                             first_snap=fetch.get(first_url)
                         except VerificationIssue as issue:
-                            if (issue.category=='retry_later' and issue.reason=='incomplete_html'
-                                    and len(deferred_threads)<3
-                                    and defer_repeated_script_challenge(store,tid,first_url)):
+                            if issue.category=='retry_later' and issue.reason=='incomplete_html':
+                                # One challenged thread must not prevent scanning the rest
+                                # of today's verified directory listing.
+                                with store.db:
+                                    store.db.execute("INSERT OR IGNORE INTO threads(tid,discovered_via) VALUES(?,'daily-challenge')",(tid,))
+                                    store.db.execute("INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,'thread',?,1)",(first_url,tid))
+                                    store.db.execute("UPDATE jobs SET state='retry_later',error='retry_later:incomplete_html_js_challenge',retry_at=? WHERE url=?",(time.time()+3600,first_url))
                                 deferred_threads.append(tid)
                                 browser_fallback_url=None
                                 continue
