@@ -129,3 +129,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Script returns exit 1 on any missing or partial state; unlike a green command exit, it will never call zero new articles a successful current-day acceptance. Does not alter writers, releases, NAS state or source access rate.
 - Real Studio check on 2026-11-02: PASS; 16 discovered / 16 complete, no unresolved challenges, zero missing in current release, SQLite `ok`.
 - Remaining improvements: automated invocation after every release, synthetic failure-path test cases, and non-destructive scheduling preemption integration tests before shipping further changes. This check cannot independently know whether the source site posted more articles than its current discovery receipt; source-list completeness still requires separate comparison.
+
+## 2026-11-02 08:20 AEDT restored owner Archive Worker live panel
+
+- Root cause: Studio branch in `oursteps/control_center.py` explicitly replaced the original Archive Worker polling UI with the placeholder that its real-time endpoint was disabled.
+- Added read-only `scripts/studio_worker_status.py`: samples local Studio Python worker process, start/elapsed, IDLE/RUNNING, and upcoming configured historical schedule, without invoking NAS SSH or touching database writers. The owner localhost action API exposes `/studio-action/worker-status` via the existing owner-protected Apache proxy.
+- Studio Control Center now renders the original worker table with live 5-second polling; API returned IDLE on live validation. Published release `6e15cca32dc7b7aec8a9a0778de48d8c46ac2c5fd23ff38b307ff5e1348ff44a`, post-publish check PASS, 15,296 complete articles. New release JS contains the live endpoint and worker rendering.
+- Follow-up: synthetic RUNNING process detection tests, status correctness during manual/automatic overlap, and confirm authenticated browser rendering. Current next scheduled time is computed from configured historical slots; actual LaunchAgent state should be independently checked before trusting it as a scheduling guarantee.

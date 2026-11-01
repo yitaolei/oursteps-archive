@@ -22,6 +22,12 @@ class Handler(BaseHTTPRequestHandler):
  def send(self,code,data):
   b=json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def do_GET(self):
+  if self.path=='/studio-action/worker-status':
+   try:
+    output=subprocess.check_output([sys.executable,str(ROOT/'scripts/studio_worker_status.py')],cwd=ROOT,timeout=5)
+    return self.send(200,json.loads(output))
+   except (OSError,ValueError,subprocess.SubprocessError):
+    return self.send(503,{'ok':False,'error':'worker_status_unavailable'})
   if self.path!='/studio-action/status':return self.send(404,{'ok':False})
   self.send(200,{'ok':True,'job':state()})
  def do_POST(self):
