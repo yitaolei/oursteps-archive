@@ -7,8 +7,15 @@ ROOT=Path(__file__).resolve().parents[1]
 STATE=ROOT/'data/studio-manual-sync.json'
 LOCK=ROOT/'data/studio-manual-api.lock'
 def state():
- try:return json.loads(STATE.read_text())
+ try:job=json.loads(STATE.read_text())
  except (OSError,ValueError):return {'state':'idle'}
+ if job.get('state')=='running' and isinstance(job.get('pid'),int):
+  try:os.kill(job['pid'],0)
+  except ProcessLookupError:
+   job.update(state='failed',finished_at=time.time(),message='Worker exited without final receipt; inspect local log')
+   save(job)
+  except PermissionError:pass
+ return job
 def save(value):
  tmp=STATE.with_suffix('.tmp');tmp.write_text(json.dumps(value));os.replace(tmp,STATE)
 class Handler(BaseHTTPRequestHandler):

@@ -33,3 +33,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Historical Backfill was invoked through the same action API. It transitioned to an exited worker state and passed an unchanged release validation. The worker reported `waiting_window`, zero new snapshots and zero new complete threads; this is a valid access-window pause **not proof of actual backfill throughput**. The manual worker now identifies this condition as `deferred` rather than `succeeded` on future runs.
 - Studio SQLite `PRAGMA quick_check` returned `ok`, with 15,162 complete articles. NAS source DB modification time remained 2026-11-01 10:07:30 AEDT.
 - Still required: real `OStester` denial test; browser click tests for all actions; a manual backfill run during a permitted window to demonstrate newly archived articles; stale PID and multi-worker fault tests.
+
+## 15:26 AEDT reliability follow-up
+
+- All three Studio scheduled services (primary cycle, backfill, health) and the localhost-only manual API were loaded. NAS original SQLite timestamp still matched the frozen 10:07:30 AEDT baseline.
+- Reviewed owner-only Apache proxy: `^/studio-action/(?:status|incremental-sync|guide-discovery|historical-backfill|publish-release)$` is Basic Auth `Require user OSowner`. Anonymous and role-specific outcomes are distinct; live OStester negative test is still required.
+- Added `studio_manual_sync_api.py` stale-running status detection: if the stored worker PID no longer exists, the job is marked failed rather than staying indefinitely `running`. Source compiled, service restarted, existing finished receipt remained readable. The crash path still needs a controlled fault test.
+- Manual backfill's historical success receipt was created before the `waiting_window` -> `deferred` patch, so it still says `succeeded`. Future receipts should report the corrected state; do not rewrite old evidence retroactively.
