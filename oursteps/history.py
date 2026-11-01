@@ -132,9 +132,10 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
         from datetime import datetime
         from zoneinfo import ZoneInfo
-        # Reserve full-length historical articles for 01:00-06:00 Sydney time.
+        # Permit full-length historical articles from 22:00 to 06:00 Sydney time.
         # Otherwise stop at page 10 without marking an incomplete thread complete.
-        is_overnight=1<=datetime.now(ZoneInfo('Australia/Sydney')).hour<6
+        hour=datetime.now(ZoneInfo('Australia/Sydney')).hour
+        is_overnight=hour>=22 or hour<6
         page_limit=None if is_overnight else 10
         for tid in tids:
             if page_limit is not None and store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND kind='thread' AND page>? AND state IN ('pending','retry_later')",(tid,page_limit)).fetchone():

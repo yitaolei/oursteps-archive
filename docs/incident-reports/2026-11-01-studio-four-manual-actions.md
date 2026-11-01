@@ -117,3 +117,8 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Added `page_limit` to `oursteps.cli.run`: when the next thread job exceeds that limit, exit the per-thread loop as `page_limit_reached` before any fetch. Existing parsed pages/jobs persist, and incomplete threads remain incomplete rather than being misreported as archived.
 - Historical backfill uses `Australia/Sydney` local time. From 01:00 up to 06:00 it allows the existing full-thread policy; outside those hours it enforces a 10-page-per-thread ceiling, skipping existing threads with pending page >10. All source robots restrictions continue to apply; the nighttime exception never bypasses source policy.
 - Passed py_compile; next run is required to verify end-to-end performance, since in-flight workers retain old imported modules.
+
+## 2026-11-02 long-thread time-window amendment
+
+- Per owner: long-thread eligibility begins at 22:00 Sydney local time rather than 01:00. History page cap is disabled between 22:00 and 06:00 local, and ten pages otherwise.
+- Source robots visit-time remains independently enforced; eligibility does not authorize network activity outside the source permitted UTC hours.
