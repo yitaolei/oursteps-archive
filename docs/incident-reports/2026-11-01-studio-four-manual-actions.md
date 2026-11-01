@@ -55,3 +55,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - A read-only Studio SQLite audit found 19,791 incomplete inventory threads, including 19,612 never-queued records and 142 distinct incomplete TIDs with a currently due pending/retry job. Many early sorted entries were already `not_found` or `auth_required` and could not be processed.
 - Updated `oursteps/history.py` candidate enumeration: select due pending/retry TIDs and never-queued inventory TIDs; prioritize jobs already due, then unqueued records. Do not repeatedly scan permanently failed or not-yet-due jobs as candidates. Existing per-thread worker locks, budget, robots checks and retry conditions are unchanged.
 - Verified SQL against read-only production SQLite and compiled module. Next in-window live scheduled run must verify throughput; this is a scheduling/candidate optimization, **not yet evidence of successful new fetches**.
+
+## 15:40 AEDT avoid unnecessary release work outside visit window
+
+- Verified the new scheduled historical backfill calendar was loaded but had not yet run (`runs = 0`), as the local time was outside the source site's publicly declared Visit-time. No throughput claim is warranted yet.
+- Added a guarded early return in `scripts/studio_primary_backfill_cycle.py`: when the worker explicitly reports `waiting_window` and before/after Studio production metrics are identical, record `STUDIO_BACKFILL_DEFERRED_WINDOW_NO_PUBLISH` and skip preview generation, release publish, and Apache refresh. Other outcomes retain the original publish/validation flow.
+- Tested the branch on the Studio runtime. Worker returned `waiting_window`, zero new snapshots and zero new complete threads, then emitted the expected no-publish message. Python syntax validation passed; existing Studio website and NAS database were not rewritten by this no-op.
+- Positive throughput still requires one observed run within the permitted window. Maintain rate limiting and website robots constraints.
