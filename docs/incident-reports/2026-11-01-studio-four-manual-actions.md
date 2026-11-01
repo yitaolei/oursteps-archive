@@ -48,3 +48,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Anonymous requests to full archive index, TID 1905193, first-page review, Studio health JSON, Studio manual action status and action path, and recent-one-year index all returned HTTP 401. Apache syntax and `Require user OSowner` rules were reviewed.
 - Real `OStester` authorization denial and `OSowner` acceptance tests are **not yet validated in this run**; passwords were not requested or stored. Actual in-window throughput still needs an observed scheduled batch with positive fetch/complete counters.
 - Frozen NAS SQLite baseline modification time remained 2026-11-01 10:07:30 AEDT.
+
+## 15:38 AEDT due-first backfill candidate optimization
+
+- Verified OurSteps robots.txt directly earlier today: Request-rate 1/5, Crawl-delay 5, Visit-time 1400-2200; keep all source policy, pacing and network-denial safeguards.
+- A read-only Studio SQLite audit found 19,791 incomplete inventory threads, including 19,612 never-queued records and 142 distinct incomplete TIDs with a currently due pending/retry job. Many early sorted entries were already `not_found` or `auth_required` and could not be processed.
+- Updated `oursteps/history.py` candidate enumeration: select due pending/retry TIDs and never-queued inventory TIDs; prioritize jobs already due, then unqueued records. Do not repeatedly scan permanently failed or not-yet-due jobs as candidates. Existing per-thread worker locks, budget, robots checks and retry conditions are unchanged.
+- Verified SQL against read-only production SQLite and compiled module. Next in-window live scheduled run must verify throughput; this is a scheduling/candidate optimization, **not yet evidence of successful new fetches**.

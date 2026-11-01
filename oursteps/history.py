@@ -121,7 +121,13 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
     # Page limit extension applies only inside this explicit historical worker.
     store.historical_mode=True
     try:
-        tids=[r[0] for r in store.db.execute("SELECT i.tid FROM inventory i JOIN threads t ON t.tid=i.tid WHERE t.status!='complete' ORDER BY i.tid DESC")]
+        # Skip permanently stopped/deferred jobs, but retain never-queued inventory.
+        # Prioritize jobs actually due before inserting brand-new page-one jobs.
+        tids=[r[0] for r in store.db.execute("""SELECT i.tid FROM inventory i JOIN threads t ON t.tid=i.tid
+          WHERE t.status!='complete' AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.tid=i.tid)
+            OR EXISTS (SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state IN ('pending','retry_later') AND j.retry_at<=?))
+          ORDER BY CASE WHEN EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state IN ('pending','retry_later') AND j.retry_at<=?) THEN 0 ELSE 1 END,
+          CASE WHEN t.status='pending' THEN 0 ELSE 1 END, i.tid DESC""",(time.time(),time.time()))]
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
         for tid in tids:
