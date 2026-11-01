@@ -2,7 +2,8 @@
 import json,os,subprocess,sys,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];STATE=ROOT/'data/studio-manual-sync.json'
-result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,timeout=1800)
+env_priority=os.environ.copy();env_priority['OURSTEPS_MANUAL_PRIORITY']='1'
+result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,env=env_priority,timeout=1800)
 # One bounded, authenticated local browser recovery for newly deferred first pages.
 if result.returncode in (2,3):
  try:
@@ -28,7 +29,7 @@ if result.returncode in (2,3):
    if attempt.returncode==0:
     flushed=subprocess.run([sys.executable,str(ROOT/'scripts/studio_flush_browser_preview.py')],cwd=ROOT,env=env,timeout=180)
     if flushed.returncode==0:
-     result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,env=env,timeout=1800)
+     result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_primary_cycle.py'),'--execute'],cwd=ROOT,env={**env,'OURSTEPS_MANUAL_PRIORITY':'1'},timeout=1800)
      print('STUDIO_BROWSER_RECOVERY_RESULT',result.returncode,flush=True)
  except (OSError,ValueError,subprocess.TimeoutExpired) as error:
   print('STUDIO_RECOVERY_DEFERRED',type(error).__name__,flush=True)

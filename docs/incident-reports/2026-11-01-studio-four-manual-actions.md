@@ -97,3 +97,11 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Source-site screenshot shows numerous 2026-11-02 posts while Studio TODAY page only one item. The old daily incremental algorithm stopped directory scanning when the fourth challenged first page appeared (`len(deferred_threads)<3`), despite a valid authenticated directory listing. Browser rescue was also bounded to only one article per invocation.
 - Patched `oursteps/sync.py` to queue every `retry_later:incomplete_html` first-page candidate as `daily-challenge`/`retry_later` and continue scanning the remainder of the verified daily listing. It must not mark challenged HTML as complete or bypass robots rules. This preserves 'publish all verified, defer unresolved' behavior without imposing an arbitrary limit of three challenged articles.
 - Compiled Python module. Attempted immediate live daily cycle but Studio 07:45 scheduled historical worker already held the shared production lock; no concurrent database writer was forced. The corrected multi-post daily scan remains **pending live run after the lock releases**.
+
+## 2026-11-02 07:53 AEDT owner manual sync priority over scheduled historical backfill
+
+- Keep the single Studio SQLite writer lock: manual priority must not mean two concurrent writers.
+- Studio manual API now creates a short-lived `data/studio-manual-priority.json` marker when an OSowner initiates Incremental Sync Now.
+- Historical worker checks that marker at the next thread boundary and yields `manual_priority_yield`, without interrupting a network response or active SQLite write. Its outer cycle writes the usual receipt and skips the now-unnecessary historical publish, allowing the owner sync to acquire the lock.
+- Manual sync worker sets `OURSTEPS_MANUAL_PRIORITY=1`; Studio primary cycle waits for the lock for up to 180 seconds instead of immediately failing. Once the exclusive lock is acquired, the marker is removed, and normal sync/publish proceeds.
+- All five changed Python modules passed AST/py_compile checks. The currently active 07:45 historical process started before this patch and cannot cooperatively yield mid-run. Full live preemption must be validated with a *new* historical worker instance; do not claim it has already succeeded.

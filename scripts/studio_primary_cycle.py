@@ -27,8 +27,19 @@ def cycle(*, execute=False):
         raise ValueError('explicit Studio writer authority required')
     incomplete=False
     with (local/'studio-primary-cycle.lock').open('a+') as lock:
-        try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError: raise ValueError('Studio primary cycle already running')
+        if os.environ.get('OURSTEPS_MANUAL_PRIORITY')=='1':
+            deadline=__import__('time').monotonic()+180
+            while True:
+                try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+                except BlockingIOError:
+                    if __import__('time').monotonic()>=deadline:raise ValueError('Manual priority wait timed out; worker not safely yielded')
+                    __import__('time').sleep(1)
+            marker=local/'studio-manual-priority.json'
+            try:marker.unlink()
+            except FileNotFoundError:pass
+        else:
+            try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError: raise ValueError('Studio primary cycle already running')
         env=os.environ.copy()
         env['OURSTEPS_STUDIO_PRIMARY_EXPERIMENT']='1'
         env.pop('OURSTEPS_NAS_HOST',None)

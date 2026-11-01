@@ -131,6 +131,15 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
         for tid in tids:
+            # Yield between articles for a recent owner-requested incremental scan.
+            # Never interrupt an individual fetch or an SQLite transaction.
+            priority=store.root/'studio-manual-priority.json'
+            try:
+                signal=json.loads(priority.read_text())
+                requested=float(signal.get('requested_at',0))
+                if signal.get('action')=='incremental-sync' and 0<=time.time()-requested<3600:
+                    status='manual_priority_yield';break
+            except (OSError,ValueError,TypeError):pass
             if deadline is not None and time.monotonic()>=deadline:
                 status='budget_reached';break
             if max_threads is not None and started>=max_threads:

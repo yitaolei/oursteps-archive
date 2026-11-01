@@ -39,6 +39,11 @@ class Handler(BaseHTTPRequestHandler):
    with out.open('ab') as stream:
     argv=[sys.executable,str(ROOT/'scripts/studio_manual_sync_worker.py')] if action=='incremental-sync' else [sys.executable,str(ROOT/'scripts/studio_other_action_worker.py'),action]
     p=subprocess.Popen(argv,cwd=ROOT,env=env,stdin=subprocess.DEVNULL,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
+   if action=='incremental-sync':
+    # Cooperative preemption: historical worker yields at its next thread boundary.
+    marker=ROOT/'data/studio-manual-priority.json';tmp=marker.with_suffix('.tmp')
+    tmp.write_text(json.dumps({'requested_at':time.time(),'worker_pid':p.pid,'action':action}))
+    os.replace(tmp,marker)
    record={'state':'running','action':action,'pid':p.pid,'started_at':time.time(),'message':'Studio '+action+' started'}
    save(record);self.send(202,{'ok':True,'created':True,'job':record})
  def log_message(self,*args):pass

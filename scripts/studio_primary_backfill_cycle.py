@@ -44,6 +44,9 @@ with (DATA/'studio-primary-cycle.lock').open('a+') as lock:
         history.write(json.dumps(receipt,sort_keys=True)+'\n');history.flush();os.fsync(history.fileno())
     print('BACKFILL_METRICS',json.dumps(receipt),flush=True)
     if rc: raise SystemExit(rc)
+    if reason=='manual_priority_yield':
+        print('STUDIO_BACKFILL_YIELDED_TO_MANUAL',flush=True)
+        raise SystemExit(0)
     if reason=='waiting_window' and after==before:
         print('STUDIO_BACKFILL_DEFERRED_WINDOW_NO_PUBLISH',flush=True)
         raise SystemExit(0)
