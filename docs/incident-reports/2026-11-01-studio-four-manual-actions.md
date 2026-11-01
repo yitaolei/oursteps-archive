@@ -122,3 +122,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 
 - Per owner: long-thread eligibility begins at 22:00 Sydney local time rather than 01:00. History page cap is disabled between 22:00 and 06:00 local, and ten pages otherwise.
 - Source robots visit-time remains independently enforced; eligibility does not authorize network activity outside the source permitted UTC hours.
+
+## 2026-11-02 08:16 AEDT regression acceptance gate
+
+- Added `scripts/studio_incremental_acceptance.py`, a read-only, non-network Studio production acceptance check for the current Sydney calendar day. It checks SQLite quick_check, nonzero discovered daily membership, all daily members complete, empty unresolved daily-challenge queue, fresh sync receipt status=success/discovery_complete=true/count agreement, and the currently published local release HTML containing every complete daily TID.
+- Script returns exit 1 on any missing or partial state; unlike a green command exit, it will never call zero new articles a successful current-day acceptance. Does not alter writers, releases, NAS state or source access rate.
+- Real Studio check on 2026-11-02: PASS; 16 discovered / 16 complete, no unresolved challenges, zero missing in current release, SQLite `ok`.
+- Remaining improvements: automated invocation after every release, synthetic failure-path test cases, and non-destructive scheduling preemption integration tests before shipping further changes. This check cannot independently know whether the source site posted more articles than its current discovery receipt; source-list completeness still requires separate comparison.
