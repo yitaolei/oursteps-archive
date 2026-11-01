@@ -26,7 +26,7 @@ def compact(report):
     return {k:report[k] for k in ('threads','complete_threads','author_posts',
                                  'parsed_pages','pending_jobs','failures','gaps','halt')}
 
-def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None):
+def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None, page_limit=None):
     if store.setting('halt') and not offline:
         return 'halted'
     pause_key,streak_key=backoff_keys(store)
@@ -46,6 +46,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
             if tids is not None:
                 clause += ' AND tid IN ('+','.join(str(int(t)) for t in tids or [0])+')'
             job = store.db.execute('SELECT * FROM jobs WHERE state IN ("pending","retry_later")'+clause+' ORDER BY retry_at,tid,page LIMIT 1').fetchone()
+            if job and page_limit is not None and job['kind']=='thread' and int(job['page'] or 1)>page_limit:
+                status='page_limit_reached';break
             if not job:
                 if offline and store.db.execute('SELECT count(*) FROM jobs WHERE state="pending"').fetchone()[0]:
                     status = 'offline_missing_raw'

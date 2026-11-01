@@ -110,3 +110,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 
 - OSowner requested that Incremental Sync Now take precedence. Actual manual action POST to the running owner API succeeded at 08:00:40 and created PID 54790; manual-priority marker is present. However, a historical worker that started at 07:45 before the cooperative-yield change still owns the shared write lock; the manual sync is correctly queued and must not concurrently write the SQLite database.
 - Updated manual worker from single-item browser fallback to bounded 3 rounds of up to 20 verified `daily-challenge` first-page imports per round, using existing logged-in Chrome snapshot validator, preview flush and repeated daily scan. This patch is effective for new worker instances; running PID 54790 loaded the older code at start. A fresh live batch run after lock release is required before declaring the daily listing fully recovered.
+
+## 2026-11-02 08:05 AEDT daytime historical page cap
+
+- User directed that normal daytime historical archive work must not process long threads beyond ten pages; allow full-length thread completion overnight instead.
+- Added `page_limit` to `oursteps.cli.run`: when the next thread job exceeds that limit, exit the per-thread loop as `page_limit_reached` before any fetch. Existing parsed pages/jobs persist, and incomplete threads remain incomplete rather than being misreported as archived.
+- Historical backfill uses `Australia/Sydney` local time. From 01:00 up to 06:00 it allows the existing full-thread policy; outside those hours it enforces a 10-page-per-thread ceiling, skipping existing threads with pending page >10. All source robots restrictions continue to apply; the nighttime exception never bypasses source policy.
+- Passed py_compile; next run is required to verify end-to-end performance, since in-flight workers retain old imported modules.

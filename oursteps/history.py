@@ -130,7 +130,15 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
           CASE WHEN t.status='pending' THEN 0 ELSE 1 END, i.tid DESC""",(time.time(),time.time()))]
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        # Reserve full-length historical articles for 01:00-06:00 Sydney time.
+        # Otherwise stop at page 10 without marking an incomplete thread complete.
+        is_overnight=1<=datetime.now(ZoneInfo('Australia/Sydney')).hour<6
+        page_limit=None if is_overnight else 10
         for tid in tids:
+            if page_limit is not None and store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND kind='thread' AND page>? AND state IN ('pending','retry_later')",(tid,page_limit)).fetchone():
+                continue
             # Yield between articles for a recent owner-requested incremental scan.
             # Never interrupt an individual fetch or an SQLite transaction.
             priority=store.root/'studio-manual-priority.json'
@@ -154,6 +162,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
             if not eligible:continue
             started+=1
             limits={'deadline':deadline} if deadline is not None else {}
+            limits['page_limit']=page_limit
             status=run(store,tids=[tid],fetcher_override=fetch,**limits)
             if status=='budget_reached':break
             if status in ('halted','waiting_window') or store.setting('halt'):break
