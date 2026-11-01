@@ -91,5 +91,13 @@ for(const b of document.querySelectorAll('.studio-extra-action')){b.addEventList
 async function refreshStudioAutomation(){try{const r=await fetch('/studio-status/automation.json',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json(),b=d.backfill||{},m=b.latest||{},c=d.checks||{};const when=x=>x?new Date(Number(x)*1000).toLocaleString('zh-CN',{hour12:false}):'暂无';document.getElementById('studio-automation').textContent='健康状态：'+(d.status||'未知')+'；SQLite：'+(c.sqlite||'未知')+'；Complete：'+(c.complete??'—')+'；历史回填上次执行：'+when(m.started_at)+'；新增完整：'+(m.new_complete??'—')+'；新增快照：'+(m.new_snapshots??'—')+'；连续零增长：'+(b.zero_growth_streak??'—')+' 次；最近文章增长：'+when(b.last_article_growth_at)+'；检查更新：'+when(d.time)+'；告警：'+((d.alerts||[]).join('、')||'无')}catch(e){document.getElementById('studio-automation').textContent='实时状态暂不可用：'+e.message}}
 refreshStudioAutomation();setInterval(refreshStudioAutomation,30000);
 """
-        return {'control-center.html':html.encode(),'control-center.css':CSS.encode(),'control-center.js':js.encode(),'control-center.json':data.encode()}
+        studio_css=CSS+'''
+/* Studio manual actions: NAS 8448-sized, bold, touch-friendly controls. */
+#studio-sync-now,.studio-extra-action{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:17px;font-weight:700;line-height:1.35;min-height:46px;padding:11px 18px;margin:0 9px 10px 0;color:#172b43;background:#f8fbff;border:1.5px solid #536d8a;border-radius:7px;cursor:pointer;white-space:normal;}
+#studio-sync-now:hover,.studio-extra-action:hover{background:#eaf3fc;}
+#studio-sync-now:focus-visible,.studio-extra-action:focus-visible{outline:3px solid #2878bf;outline-offset:2px;}
+#studio-sync-now:disabled,.studio-extra-action:disabled{opacity:.55;cursor:not-allowed;}
+@media(max-width:600px){#studio-sync-now,.studio-extra-action{font-size:16px;min-height:46px;margin-bottom:10px;}}
+'''
+        return {'control-center.html':html.encode(),'control-center.css':studio_css.encode(),'control-center.js':js.encode(),'control-center.json':data.encode()}
     return {"control-center.html":HTML.encode(),"control-center.css":CSS.encode(),"control-center.js":JS.encode(),"control-center.json":data.encode()}
