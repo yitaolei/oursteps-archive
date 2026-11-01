@@ -33,7 +33,16 @@ with (DATA/'studio-primary-cycle.lock').open('a+') as lock:
         perf=_json.loads((DATA/'backfill-performance.json').read_text())
         reason=str(perf.get('status','unknown'))
     except (OSError,ValueError,TypeError): pass
-    print('BACKFILL_METRICS',json.dumps({'started_at':started_at,'elapsed_seconds':round(time.time()-started_at,2),'before':before,'after':after,'new_complete':after['complete']-before['complete'],'new_snapshots':after['snapshots']-before['snapshots'],'worker_exit':rc,'worker_state':reason}),flush=True)
+    receipt={'started_at':started_at,'elapsed_seconds':round(time.time()-started_at,2),'before':before,'after':after,'new_complete':after['complete']-before['complete'],'new_snapshots':after['snapshots']-before['snapshots'],'worker_exit':rc,'worker_state':reason}
+    try:
+        perf=json.loads((DATA/'backfill-performance.json').read_text())
+        if abs(float(perf.get('recorded_at',0))-time.time())<1800:
+            receipt['network_fetches']=int(perf.get('performance',{}).get('network_fetches',0))
+            receipt['started_threads']=int(perf.get('started_threads',0))
+    except (OSError,ValueError,TypeError):pass
+    with (DATA/'studio-backfill-runs.jsonl').open('a',encoding='utf-8') as history:
+        history.write(json.dumps(receipt,sort_keys=True)+'\n');history.flush();os.fsync(history.fileno())
+    print('BACKFILL_METRICS',json.dumps(receipt),flush=True)
     if rc: raise SystemExit(rc)
     if reason=='waiting_window' and after==before:
         print('STUDIO_BACKFILL_DEFERRED_WINDOW_NO_PUBLISH',flush=True)

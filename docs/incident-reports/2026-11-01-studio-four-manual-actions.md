@@ -62,3 +62,9 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - Added a guarded early return in `scripts/studio_primary_backfill_cycle.py`: when the worker explicitly reports `waiting_window` and before/after Studio production metrics are identical, record `STUDIO_BACKFILL_DEFERRED_WINDOW_NO_PUBLISH` and skip preview generation, release publish, and Apache refresh. Other outcomes retain the original publish/validation flow.
 - Tested the branch on the Studio runtime. Worker returned `waiting_window`, zero new snapshots and zero new complete threads, then emitted the expected no-publish message. Python syntax validation passed; existing Studio website and NAS database were not rewritten by this no-op.
 - Positive throughput still requires one observed run within the permitted window. Maintain rate limiting and website robots constraints.
+
+## 15:53 AEDT durable per-run throughput receipts
+
+- Added append-only `data/studio-backfill-runs.jsonl` to the Studio historical cycle. Each completed worker invocation records starting timestamp, duration, before/after complete and snapshot counts, number of new complete articles, new snapshots, source network fetches, started threads, worker exit and worker status. The file is Studio-local runtime data, **not** included in Git.
+- Verified the new receipt writer with a real outside-window backfill cycle: `waiting_window`, 0 network fetches, 0 new snapshots and complete threads. The no-op publishing guard still avoided release regeneration.
+- This makes scheduled run outcomes independently auditable after the first allowed 02:15 AEDT cycle; it does not assert that a future run has already occurred or gained articles.
