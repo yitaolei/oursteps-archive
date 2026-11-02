@@ -26,7 +26,9 @@ def compact(report):
     return {k:report[k] for k in ('threads','complete_threads','author_posts',
                                  'parsed_pages','pending_jobs','failures','gaps','halt')}
 
-def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None, page_limit=None):
+def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None, page_limit=None, per_thread_page_budget=None):
+    if per_thread_page_budget is not None and (type(per_thread_page_budget) is not int or per_thread_page_budget<=0):
+        raise ValueError('per-thread page budget must be a positive integer')
     if store.setting('halt') and not offline:
         return 'halted'
     pause_key,streak_key=backoff_keys(store)
@@ -35,6 +37,7 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                                   (time.time(),)).lastrowid
     fetcher = fetcher_override
     status = 'complete'
+    processed_pages = {}
     atomic_write(store.root/'run-status.json',json.dumps(dict(
         status='running_or_waiting_window',updated_at=time.time(),
         **compact(store.report())),ensure_ascii=False,indent=2).encode())
@@ -45,11 +48,16 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
             clause = ' AND url IN (SELECT url FROM snapshots)' if offline else ''
             if tids is not None:
                 clause += ' AND tid IN ('+','.join(str(int(t)) for t in tids or [0])+')'
+            capped=[tid for tid,count in processed_pages.items() if per_thread_page_budget is not None and count>=per_thread_page_budget]
+            if capped:
+                clause += " AND NOT (kind='thread' AND tid IN ("+','.join(str(int(t)) for t in capped)+'))'
             job = store.db.execute('SELECT * FROM jobs WHERE state IN ("pending","retry_later")'+clause+' ORDER BY retry_at,tid,page LIMIT 1').fetchone()
             if job and page_limit is not None and job['kind']=='thread' and int(job['page'] or 1)>page_limit:
                 status='page_limit_reached';break
             if not job:
-                if offline and store.db.execute('SELECT count(*) FROM jobs WHERE state="pending"').fetchone()[0]:
+                if capped and store.db.execute('SELECT 1 FROM jobs WHERE state IN ("pending","retry_later") AND kind="thread" AND tid IN ('+','.join(str(int(t)) for t in capped)+') LIMIT 1').fetchone():
+                    status='thread_page_budget_reached'
+                elif offline and store.db.execute('SELECT count(*) FROM jobs WHERE state="pending"').fetchone()[0]:
                     status = 'offline_missing_raw'
                 break
             due = max(job['retry_at'], float(store.setting(pause_key, '0')))
@@ -127,6 +135,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                                          ('canonical_redirect:'+canonical,job['url']))
                         store.db.execute('DELETE FROM gaps WHERE url=? AND pid=0',(job['url'],))
                     store.refresh_status([job['tid']])
+                if job['kind']=='thread':
+                    processed_pages[job['tid']]=processed_pages.get(job['tid'],0)+1
                 if not offline:
                     store.set_setting(streak_key, 0)
                     store.set_setting(pause_key, 0)

@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from oursteps.store import Store
 from oursteps.history import prepare, backfill, _historical_candidates
 from oursteps.cli import run
-from oursteps.parser import thread_url,Busy
+from oursteps.parser import thread_url,Busy,query
 
 
 class HistoryLimitsTests(unittest.TestCase):
@@ -165,3 +165,41 @@ class HistoryLimitsTests(unittest.TestCase):
         self.assertEqual(s.db.execute('SELECT count(*) FROM pages').fetchone()[0],1)
         self.assertEqual(s.db.execute('SELECT state FROM jobs WHERE page=2').fetchone()[0],'pending')
         self.assertEqual(s.db.execute('SELECT status FROM threads').fetchone()[0],'partial')
+
+    def test_page_slice_yields_to_other_thread_and_resumes_after_restart(self):
+        s=self.store();long_tid=1902000;short_tid=1902001
+        s.seed([long_tid,short_tid],'test')
+        with s.db:
+            for tid in (long_tid,short_tid):s.db.execute('INSERT INTO inventory VALUES(?,0,0)',(tid,))
+        for tid,total in ((long_tid,8),(short_tid,1)):
+            for page in range(1,total+1):s.snapshot(thread_url(tid,page),b'synthetic')
+        def parse(raw,url):
+            q=query(url);tid=int(q['tid']);page=int(q.get('page',1));total=8 if tid==long_tid else 1
+            return dict(tid=tid,page=page,title='synthetic',fid=1,forum='test',gaps=[],posts=[],
+                        all_pids=[tid*100+page],declared_pages=total,
+                        next_pages=[page+1] if page<total else [],views=0,replies=0)
+        with patch('oursteps.history.Fetcher'),patch('oursteps.cli.parse_thread',side_effect=parse):
+            backfill(s,now=True,per_thread_page_budget=5,defer_preview=True)
+            self.assertEqual(s.db.execute('SELECT status FROM threads WHERE tid=?',(long_tid,)).fetchone()[0],'partial')
+            self.assertEqual(s.db.execute('SELECT status FROM threads WHERE tid=?',(short_tid,)).fetchone()[0],'complete')
+            self.assertEqual([tuple(r) for r in s.db.execute('SELECT page,state FROM jobs WHERE tid=? ORDER BY page',(long_tid,))],
+                             [(1,'success'),(2,'success'),(3,'success'),(4,'success'),(5,'success'),(6,'pending')])
+            s.db.close();s.db=Store(s.root).db
+            backfill(s,now=True,per_thread_page_budget=5,defer_preview=True)
+        self.assertEqual(s.db.execute('SELECT status FROM threads WHERE tid=?',(long_tid,)).fetchone()[0],'complete')
+        self.assertEqual([tuple(r) for r in s.db.execute('SELECT page,state FROM jobs WHERE tid=? ORDER BY page',(long_tid,))],
+                         [(page,'success') for page in range(1,9)])
+
+    def test_page_slice_respects_daytime_page_limit(self):
+        s=self.store();tid=1902000;s.seed([tid],'test');s.historical_mode=True
+        for page in range(1,12):s.snapshot(thread_url(tid,page),b'synthetic')
+        def parse(raw,url):
+            page=int(query(url).get('page',1))
+            return dict(tid=tid,page=page,title='synthetic',fid=1,forum='test',gaps=[],posts=[],
+                        all_pids=[page],declared_pages=11,next_pages=[page+1] if page<11 else [],views=0,replies=0)
+        with patch('oursteps.cli.parse_thread',side_effect=parse):
+            self.assertEqual(run(s,tids=[tid],page_limit=10,per_thread_page_budget=5),'thread_page_budget_reached')
+            self.assertEqual(run(s,tids=[tid],page_limit=10,per_thread_page_budget=5),'thread_page_budget_reached')
+            self.assertEqual(run(s,tids=[tid],page_limit=10,per_thread_page_budget=5),'page_limit_reached')
+        self.assertEqual(s.db.execute('SELECT state FROM jobs WHERE tid=? AND page=11',(tid,)).fetchone()[0],'pending')
+        self.assertEqual(s.db.execute('SELECT status FROM threads WHERE tid=?',(tid,)).fetchone()[0],'partial')

@@ -120,8 +120,8 @@ def _historical_candidates(store, now):
         slot=(slot+1)%len(pattern)
 
 
-def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None,defer_preview=False):
-    if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes)):
+def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None,defer_preview=False,per_thread_page_budget=None):
+    if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes,per_thread_page_budget)):
         raise ValueError('backfill limits must be positive integers')
     deadline=time.monotonic()+max_minutes*60 if max_minutes is not None else None
     started=0
@@ -184,6 +184,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
             started+=1
             limits={'deadline':deadline} if deadline is not None else {}
             limits['page_limit']=page_limit
+            if per_thread_page_budget is not None:limits['per_thread_page_budget']=per_thread_page_budget
             status=run(store,tids=[tid],fetcher_override=fetch,**limits)
             if status=='budget_reached':break
             if status in ('halted','waiting_window') or store.setting('halt'):break
