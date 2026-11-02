@@ -163,3 +163,10 @@ Four manual actions have been staged on Studio HTTPS 18751: Incremental Sync Now
 - An attempted SSH connection to guessed address 192.168.0.100 timed out; that guessed address is NOT verified as NAS. Do not use guessed NAS IPs or blindly run docker stop.
 - Targeted retirement operation once NAS admin access and DSM mapping are confirmed: disable restart for `oursteps-public-web`, stop only this exact container, confirm 18080 no longer serves, disable only the matching DSM 8448 reverse-proxy rule, and validate Studio 18751 still passes OSowner/OStester permissions. Preserve NAS data for rollback; record exact previous compose and proxy configuration.
 - No NAS service was stopped. External replacement reachability and authenticated post-change testing remain outstanding gates.
+
+## 2026-11-03 08:55 AEDT historical backfill starvation correction
+
+- Overnight four batches processed 240 thread-attempts, produced 334 snapshots, but only 1 new complete article. Current complete=15,310, inventory=34,323, 19,630 eligible incomplete threads; current-day November 3 sync 13/13 PASS.
+- Investigation found selector in `oursteps/history.py` ranked all due `pending` jobs above all previously unstarted inventory. This creates a starvation pattern where costly multipart continuations can dominate runs and prevent newly queued one-page inventory from becoming complete.
+- Changed selector to unstarted inventory first, due pending continuations second, retry_later last. No DB changes or source timing/politeness changes. The existing daytime 10-page/overnight long-page policy remains unchanged.
+- Verified Python syntax and read-only equivalent selector against live SQLite: first 60 candidates all `unstarted`. Actual network throughput after deployment NOT YET measured; historical next run is during next permitted schedule. Revisit fairness between unstarted and partial cohorts if all-unstarted priority slows long-thread completion.

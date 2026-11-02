@@ -122,11 +122,12 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
     store.historical_mode=True
     try:
         # Skip permanently stopped/deferred jobs, but retain never-queued inventory.
-        # Prioritize jobs actually due before inserting brand-new page-one jobs.
+        # Prioritize unstarted inventory to avoid endlessly revisiting expensive partial threads;
+        # then due pending continuations, then retry_later jobs.
         tids=[r[0] for r in store.db.execute("""SELECT i.tid FROM inventory i JOIN threads t ON t.tid=i.tid
           WHERE t.status!='complete' AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.tid=i.tid)
             OR EXISTS (SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state IN ('pending','retry_later') AND j.retry_at<=?))
-          ORDER BY CASE WHEN EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state='pending' AND j.retry_at<=?) THEN 0 WHEN NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid) THEN 1 ELSE 2 END,
+          ORDER BY CASE WHEN NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid) THEN 0 WHEN EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state='pending' AND j.retry_at<=?) THEN 1 ELSE 2 END,
           CASE WHEN t.status='pending' THEN 0 ELSE 1 END, i.tid DESC""",(time.time(),time.time()))]
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
