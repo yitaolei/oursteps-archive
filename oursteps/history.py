@@ -95,6 +95,31 @@ def flush_historical_previews(store):
         with store.db:_save_historical_preview_pending(store,preview_pending)
     return preview_result if complete_pending else None
 
+def _historical_candidates(store, now):
+    """Mix eligible lanes once per pass; save the next slot only on a start."""
+    from collections import deque
+    lanes=[deque(),deque(),deque()]
+    for tid,lane in store.db.execute("""SELECT i.tid,
+          CASE WHEN NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid) THEN 0
+               WHEN EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state='pending' AND j.retry_at<=?) THEN 1
+               ELSE 2 END
+        FROM inventory i JOIN threads t ON t.tid=i.tid
+        WHERE t.status!='complete' AND (NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid)
+          OR EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state IN ('pending','retry_later') AND j.retry_at<=?))
+        ORDER BY CASE WHEN t.status='pending' THEN 0 ELSE 1 END, i.tid DESC""",(now,now)):
+        lanes[lane].append(tid)
+    pattern=(0,0,1,2)
+    try:
+        slot=int(store.setting('historical_schedule_slot','0'))
+        if slot not in range(len(pattern)):slot=0
+    except (TypeError,ValueError):slot=0
+    while any(lanes):
+        lane=pattern[slot]
+        if lanes[lane]:
+            yield lanes[lane].popleft(),(slot+1)%len(pattern)
+        slot=(slot+1)%len(pattern)
+
+
 def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None,defer_preview=False):
     if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes)):
         raise ValueError('backfill limits must be positive integers')
@@ -121,14 +146,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
     # Page limit extension applies only inside this explicit historical worker.
     store.historical_mode=True
     try:
-        # Skip permanently stopped/deferred jobs, but retain never-queued inventory.
-        # Prioritize unstarted inventory to avoid endlessly revisiting expensive partial threads;
-        # then due pending continuations, then retry_later jobs.
-        tids=[r[0] for r in store.db.execute("""SELECT i.tid FROM inventory i JOIN threads t ON t.tid=i.tid
-          WHERE t.status!='complete' AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.tid=i.tid)
-            OR EXISTS (SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state IN ('pending','retry_later') AND j.retry_at<=?))
-          ORDER BY CASE WHEN NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid) THEN 0 WHEN EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.state='pending' AND j.retry_at<=?) THEN 1 ELSE 2 END,
-          CASE WHEN t.status='pending' THEN 0 ELSE 1 END, i.tid DESC""",(time.time(),time.time()))]
+        tids=_historical_candidates(store,time.time())
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
         from datetime import datetime
@@ -138,7 +156,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         hour=datetime.now(ZoneInfo('Australia/Sydney')).hour
         is_overnight=hour>=22 or hour<6
         page_limit=None if is_overnight else 10
-        for tid in tids:
+        for tid,next_slot in tids:
             if page_limit is not None and store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND kind='thread' AND page>? AND state IN ('pending','retry_later')",(tid,page_limit)).fetchone():
                 continue
             # Yield between articles for a recent owner-requested incremental scan.
@@ -161,6 +179,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
                 if eligible:
                     preview_pending.add(tid)
                     _save_historical_preview_pending(store,preview_pending)
+                    store.db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('historical_schedule_slot',?)",(str(next_slot),))
             if not eligible:continue
             started+=1
             limits={'deadline':deadline} if deadline is not None else {}

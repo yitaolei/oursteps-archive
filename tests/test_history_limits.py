@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from oursteps.store import Store
-from oursteps.history import prepare, backfill
+from oursteps.history import prepare, backfill, _historical_candidates
 from oursteps.cli import run
 from oursteps.parser import thread_url,Busy
 
@@ -15,6 +15,45 @@ class HistoryLimitsTests(unittest.TestCase):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
         store=Store(tmp.name);self.addCleanup(store.db.close);prepare(store)
         return store
+
+    def test_fair_lanes_due_refill_and_unique_threads(self):
+        s=self.store()
+        with s.db:
+            for tid in range(1,13):
+                s.db.execute("INSERT INTO threads(tid,discovered_via) VALUES(?,'test')",(tid,))
+                s.db.execute('INSERT INTO inventory VALUES(?,0,0)',(tid,))
+            for tid,state,due in ((5,'pending',0),(6,'pending',0),(7,'retry_later',0),
+                                  (8,'retry_later',0),(9,'pending',200),(10,'retry_later',200),
+                                  (11,'auth_required',0),(12,'success',0)):
+                s.db.execute('INSERT INTO jobs(url,kind,tid,page,state,retry_at) VALUES(?,?,?,?,?,?)',
+                             (str(tid),'thread',tid,1,state,due))
+            # One thread with both states belongs only to the pending lane.
+            s.db.execute("INSERT INTO jobs(url,kind,tid,page,state) VALUES('extra','thread',5,2,'retry_later')")
+        tids=[tid for tid,_ in _historical_candidates(s,100)]
+        self.assertEqual(tids,[4,3,6,8,2,1,5,7])
+        self.assertEqual(len(tids),len(set(tids)))
+        with s.db:s.db.execute("DELETE FROM jobs WHERE tid IN (7,8)")
+        tids=[tid for tid,_ in _historical_candidates(s,100)]
+        self.assertEqual(set(tids),{1,2,3,4,5,6,7,8})
+        self.assertEqual(len(tids),len(set(tids)))
+
+    def test_short_runs_resume_lane_rotation(self):
+        s=self.store()
+        with s.db:
+            for tid in (1,2,3,4):
+                s.db.execute("INSERT INTO threads(tid,discovered_via) VALUES(?,'test')",(tid,))
+                s.db.execute('INSERT INTO inventory VALUES(?,0,0)',(tid,))
+            for tid,state in ((3,'pending'),(4,'retry_later')):
+                s.db.execute('INSERT INTO jobs(url,kind,tid,page,state) VALUES(?,?,?,?,?)',
+                             (str(tid),'thread',tid,1,state))
+        selected=[]
+        def work(store,**kwargs):
+            tid=kwargs['tids'][0];selected.append(tid)
+            with store.db:store.db.execute("UPDATE threads SET status='complete' WHERE tid=?",(tid,))
+            return 'complete'
+        with patch('oursteps.history.Fetcher'),patch('oursteps.cli.run',side_effect=work),patch('oursteps.preview_batch.build_batch',side_effect=lambda store,tids:dict(tids=tids,rendered_articles=len(tids),full_rebuild=False,dry_run=False,elapsed_seconds=0)):
+            for _ in range(4):backfill(s,now=True,max_threads=1)
+        self.assertEqual(selected,[2,1,3,4])
 
     def test_thread_limit_and_unlimited(self):
         for limit,expected in ((2,2),(None,3)):
