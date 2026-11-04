@@ -210,3 +210,15 @@ The public repository is intended to provide reusable software rather than a cop
 Forum layouts and authentication flows can change. Review crawler behavior and site rules before running automated archival jobs.
 
 Use the software only for content and accounts you are authorized to access.
+
+### Historical triage and first-page sweep
+
+For an isolated local copy of an archive database, inspect historical quarantine evidence without writes or network access:
+
+```sh
+python3 scripts/historical_triage.py --db /path/to/archive.sqlite3
+```
+
+The report covers declared page counts above 10 and specific local page integrity and identity gaps. Temporary errors such as incomplete HTML are not quarantine evidence. Triage requires a Studio user-owned local data directory and an `archive.sqlite3` file on a verified local filesystem; mounted and network roots are refused. It uses SQLite `mode=ro`, `query_only`, and a read transaction for one consistent snapshot. Unlike immutable mode this observes committed WAL data; SQLite may need existing WAL shared-memory sidecars or fail if they cannot be opened, so use a properly prepared local copy. Triage has no apply or clear operation. Existing stored quarantine decisions are retained.
+
+The optional, default-off `scripts/history_worker.py backfill --data /path/to/local-copy --first-page-sweep` processes only eligible first pages with zero recorded attempts, skipping triage evidence and existing quarantine decisions. It records cached parsing attempts as well as network attempts, so a later sweep does not retry them; jobs attempted before a sweep are also excluded. The first authentication, permission, or manual-verification denial records a persistent `historical_first_page_site_hold` with TID, time, and status. Subsequent historical backfills stop before creating a fetcher until reviewed; normal daily runs are unaffected. The worker can access the forum; the triage CLI itself is offline-only. Do not run the worker against production unless separately authorized. Browser candidate selection does not share this triage policy.

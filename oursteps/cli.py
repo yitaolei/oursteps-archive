@@ -26,13 +26,15 @@ def compact(report):
     return {k:report[k] for k in ('threads','complete_threads','author_posts',
                                  'parsed_pages','pending_jobs','failures','gaps','halt')}
 
-def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None, page_limit=None, per_thread_page_budget=None):
+def run(store, offline=False, wait=False, tids=None, fetcher_override=None, deadline=None, page_limit=None, per_thread_page_budget=None, first_page_only=False):
     if per_thread_page_budget is not None and (type(per_thread_page_budget) is not int or per_thread_page_budget<=0):
         raise ValueError('per-thread page budget must be a positive integer')
     if store.setting('halt') and not offline:
         return 'halted'
     if getattr(store,'historical_mode',False) and not offline and store.setting('historical_js_challenge_hold'):
         return 'historical_js_challenge_hold'
+    if getattr(store,'historical_mode',False) and not offline and store.setting('historical_first_page_site_hold'):
+        return 'historical_first_page_site_hold'
     pause_key,streak_key=backoff_keys(store)
     with store.db:
         run_id = store.db.execute('INSERT INTO runs(started_at,status) VALUES(?,"running")',
@@ -48,11 +50,15 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
             if deadline is not None and time.monotonic()>=deadline:
                 status='budget_reached';break
             clause = ' AND url IN (SELECT url FROM snapshots)' if offline else ''
+            if first_page_only:
+                clause += " AND kind='thread' AND page=1"
             if tids is not None:
                 clause += ' AND tid IN ('+','.join(str(int(t)) for t in tids or [0])+')'
             capped=[tid for tid,count in processed_pages.items() if per_thread_page_budget is not None and count>=per_thread_page_budget]
             if capped:
                 clause += " AND NOT (kind='thread' AND tid IN ("+','.join(str(int(t)) for t in capped)+'))'
+            if first_page_only:
+                clause += ' AND COALESCE(attempts,0)=0'
             job = store.db.execute('SELECT * FROM jobs WHERE state IN ("pending","retry_later")'+clause+' ORDER BY retry_at,tid,page LIMIT 1').fetchone()
             if job and page_limit is not None and job['kind']=='thread' and int(job['page'] or 1)>page_limit:
                 status='page_limit_reached';break
@@ -99,6 +105,10 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                     snap = fetcher.get(transport_url)
                 elif getattr(store,'performance',None) is not None:
                     store.performance.add('cached_page_uses')
+                if first_page_only and snap is not None and job['attempts']==0:
+                    # Network attempts were already recorded; count a cached parse too.
+                    with store.db:
+                        store.db.execute('UPDATE jobs SET attempts=attempts+1 WHERE url=? AND COALESCE(attempts,0)=0',(job['url'],))
                 if snap['status'] != 200:
                     raise Blocked('cached_http_%s' % snap['status'])
                 canonical = snap['url'] if getattr(store,'historical_mode',False) else transport_url

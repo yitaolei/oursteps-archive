@@ -121,10 +121,11 @@ class ChallengeTests(unittest.TestCase):
 
     def test_worker_hold_exit_is_nonzero_only_for_backfill(self):
         root=Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory() as tmp, patch.object(sys,'platform','linux'), \
-             patch.object(sys,'argv',['history_worker.py','backfill','--data',tmp]), \
-             patch('oursteps.history.backfill',return_value='historical_js_challenge_hold'), \
-             contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(SystemExit) as stopped:
-                runpy.run_path(str(root/'scripts/history_worker.py'),run_name='__main__')
-            self.assertEqual(stopped.exception.code,2)
+        for hold in ('historical_js_challenge_hold','historical_first_page_site_hold'):
+            with self.subTest(hold=hold), tempfile.TemporaryDirectory() as tmp, patch.object(sys,'platform','linux'), \
+                 patch.object(sys,'argv',['history_worker.py','backfill','--data',tmp]), \
+                 patch('oursteps.history.backfill',return_value=hold), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as stopped:
+                    runpy.run_path(str(root/'scripts/history_worker.py'),run_name='__main__')
+                self.assertEqual(stopped.exception.code,2)

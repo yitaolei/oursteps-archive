@@ -95,9 +95,21 @@ def flush_historical_previews(store):
         with store.db:_save_historical_preview_pending(store,preview_pending)
     return preview_result if complete_pending else None
 
-def _historical_candidates(store, now):
+def _historical_candidates(store, now, first_page_sweep=False):
     """Mix eligible lanes once per pass; save the next slot only on a start."""
     from collections import deque
+    if first_page_sweep:
+        from .triage import quarantined
+        rows=store.db.execute("""SELECT i.tid FROM inventory i JOIN threads t ON t.tid=i.tid
+            WHERE t.status!='complete' AND (
+              NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.kind='thread' AND j.page=1)
+              OR EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid AND j.kind='thread' AND j.page=1
+                  AND j.state IN ('pending','retry_later') AND j.retry_at<=? AND COALESCE(j.attempts,0)=0))
+            ORDER BY i.tid DESC""",(now,))
+        for (tid,) in rows:
+            if not quarantined(store.db,tid):
+                yield tid,0
+        return
     lanes=[deque(),deque(),deque()]
     for tid,lane in store.db.execute("""SELECT i.tid,
           CASE WHEN NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid) THEN 0
@@ -120,18 +132,18 @@ def _historical_candidates(store, now):
         slot=(slot+1)%len(pattern)
 
 
-def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None,defer_preview=False,per_thread_page_budget=None):
+def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None,defer_preview=False,per_thread_page_budget=None,first_page_sweep=False):
     if any(v is not None and (type(v) is not int or v<=0) for v in (max_threads,max_minutes,per_thread_page_budget)):
         raise ValueError('backfill limits must be positive integers')
     deadline=time.monotonic()+max_minutes*60 if max_minutes is not None else None
     started=0
     from .cli import run
     prepare(store)
-    held=bool(store.setting('historical_js_challenge_hold'))
+    held=bool(store.setting('historical_js_challenge_hold') or store.setting('historical_first_page_site_hold'))
     if not held and not store.db.execute('SELECT 1 FROM inventory LIMIT 1').fetchone():return 'inventory_empty: run discovery first'
     # Migrate only the old blanket redirect stop; preserve other global safeguards.
     old_halt=store.setting('halt')
-    if not held and re.fullmatch(r'http_(301|302|303|307|308); redirect/auth/rate-limit not followed',old_halt or ''):
+    if not first_page_sweep and not held and re.fullmatch(r'http_(301|302|303|307|308); redirect/auth/rate-limit not followed',old_halt or ''):
         with store.db:
             store.db.execute("UPDATE jobs SET state='pending',error='reauth_fetch',retry_at=0 WHERE error=? AND tid IN (SELECT tid FROM inventory)",(old_halt,))
         store.set_setting('halt','')
@@ -150,8 +162,11 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         if store.setting('historical_js_challenge_hold'):
             status='historical_js_challenge_hold'
             return status
+        if store.setting('historical_first_page_site_hold'):
+            status='historical_first_page_site_hold'
+            return status
         fetch=Fetcher(store);fetch.daily_now=now
-        tids=_historical_candidates(store,time.time())
+        tids=_historical_candidates(store,time.time(),first_page_sweep)
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
         from datetime import datetime
@@ -162,7 +177,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         is_overnight=hour>=22 or hour<6
         page_limit=None if is_overnight else 10
         for tid,next_slot in tids:
-            if page_limit is not None and store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND kind='thread' AND page>? AND state IN ('pending','retry_later')",(tid,page_limit)).fetchone():
+            if not first_page_sweep and page_limit is not None and store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND kind='thread' AND page>? AND state IN ('pending','retry_later')",(tid,page_limit)).fetchone():
                 continue
             # Yield between articles for a recent owner-requested incremental scan.
             # Never interrupt an individual fetch or an SQLite transaction.
@@ -179,20 +194,31 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
                 status='budget_reached';break
             with store.db:
                 store.db.execute("INSERT OR IGNORE INTO jobs(url,kind,tid,page) VALUES(?,'thread',?,1)",(thread_url(tid),tid))
-                store.db.execute("UPDATE jobs SET state='pending',error='reauth_fetch',retry_at=0 WHERE tid=? AND state='auth_required' AND error LIKE 'auth_required:%' AND retry_at<?",(tid,verified))
-                eligible=store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND state IN ('pending','retry_later') AND retry_at<=?",(tid,time.time())).fetchone()
+                if not first_page_sweep:
+                    store.db.execute("UPDATE jobs SET state='pending',error='reauth_fetch',retry_at=0 WHERE tid=? AND state='auth_required' AND error LIKE 'auth_required:%' AND retry_at<?",(tid,verified))
+                sweep_clause=" AND kind='thread' AND page=1 AND COALESCE(attempts,0)=0" if first_page_sweep else ''
+                eligible=store.db.execute("SELECT 1 FROM jobs WHERE tid=? AND state IN ('pending','retry_later') AND retry_at<=?"+sweep_clause,(tid,time.time())).fetchone()
                 if eligible:
                     preview_pending.add(tid)
                     _save_historical_preview_pending(store,preview_pending)
-                    store.db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('historical_schedule_slot',?)",(str(next_slot),))
+                    if not first_page_sweep:
+                        store.db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('historical_schedule_slot',?)",(str(next_slot),))
             if not eligible:continue
             started+=1
             limits={'deadline':deadline} if deadline is not None else {}
-            limits['page_limit']=page_limit
-            if per_thread_page_budget is not None:limits['per_thread_page_budget']=per_thread_page_budget
+            limits['page_limit']=1 if first_page_sweep else page_limit
+            if first_page_sweep:
+                limits['per_thread_page_budget']=1
+                limits['first_page_only']=True
+            if per_thread_page_budget is not None and not first_page_sweep:limits['per_thread_page_budget']=per_thread_page_budget
             status=run(store,tids=[tid],fetcher_override=fetch,**limits)
+            if first_page_sweep and status in ('auth_required','permission_denied','manual_required'):
+                store.set_setting('historical_first_page_site_hold',json.dumps(
+                    {'tid':tid,'at':time.time(),'status':status},sort_keys=True))
+                status='historical_first_page_site_hold'
+                break
             if status=='budget_reached':break
-            if status in ('halted','waiting_window','historical_js_challenge_hold') or store.setting('halt'):break
+            if status in ('halted','waiting_window','historical_js_challenge_hold') or (first_page_sweep and status in ('auth_required','permission_denied','manual_required')) or store.setting('halt'):break
             pause_until = float(store.setting('historical_pause_until','0'))
             if pause_until > time.time():
                 # Historical backfill is intended to run unattended.
@@ -239,12 +265,13 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         # URL-only media policy:
         # image URLs remain archived in assets; historical backfill does not
         # download remote image binaries.
-        problems=[dict(r) for r in store.db.execute("SELECT j.tid,j.page,j.url,j.state,j.error,j.attempts,j.retry_at FROM jobs j JOIN inventory i ON i.tid=j.tid WHERE j.state!='success' ORDER BY j.tid,j.page")]
-        atomic_write(store.root/'backfill-problems.json',json.dumps(problems,ensure_ascii=False,indent=2).encode())
+        if not first_page_sweep:
+            problems=[dict(r) for r in store.db.execute("SELECT j.tid,j.page,j.url,j.state,j.error,j.attempts,j.retry_at FROM jobs j JOIN inventory i ON i.tid=j.tid WHERE j.state!='success' ORDER BY j.tid,j.page")]
+            atomic_write(store.root/'backfill-problems.json',json.dumps(problems,ensure_ascii=False,indent=2).encode())
         preview_started=time.monotonic()
         preview_result=None;preview_error=None
         try:
-            if not defer_preview and status!='historical_js_challenge_hold':
+            if not defer_preview and status not in ('historical_js_challenge_hold','historical_first_page_site_hold'):
                 preview_result=flush_historical_previews(store)
         except Exception as error:
             preview_error=type(error).__name__+': '+str(error)
