@@ -3,6 +3,7 @@ from .config import UID
 from .performance import measured
 from . import persistence_diagnostics as diag
 import hashlib
+from contextlib import nullcontext
 import json
 import os
 import re
@@ -172,8 +173,10 @@ class Store:
         return data
 
     @measured('persistence_seconds')
-    def save_page(self, url, parsed, snap):
+    def save_page(self, url, parsed, snap, external_transaction=False):
         from .parser import VERSION, thread_url
+        if external_transaction and not self.db.in_transaction:
+            raise ValueError('external_transaction_requires_active_transaction')
         p = parsed
         # Repeated page content under different page numbers must not imply completion.
         for row in self.db.execute('SELECT page,all_pids FROM pages WHERE tid=? AND result="parsed"', (p['tid'],)):
@@ -182,7 +185,7 @@ class Store:
         limit = 1000 if getattr(self,'historical_mode',False) or self.db.execute('SELECT 1 FROM daily_members WHERE tid=?',(p['tid'],)).fetchone() else 10
         if any(n > limit for n in p['next_pages']) or (p['declared_pages'] or 0) > limit:
             raise ValueError('pilot_page_limit_10_per_thread')
-        with self.db:
+        with (nullcontext() if external_transaction else self.db):
             self.db.execute('UPDATE threads SET title=?,fid=?,forum=?,status="partial" WHERE tid=?',
                             (p['title'], p['fid'], p['forum'], p['tid']))
             self.db.execute('DELETE FROM gaps WHERE url=?', (url,))

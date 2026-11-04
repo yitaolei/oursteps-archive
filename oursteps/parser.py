@@ -167,6 +167,11 @@ def parse_thread(html, url):
         # .pls scopes identity to the author column, never a body/quote link.
         author = container.select_one('.pls .authi a[href*="uid="]')
         if author is None:
+            markers = container.select('.pls .pi em')
+            if page > 1 and any(marker.get_text('', strip=True) == '该用户已被删除'
+                                for marker in markers):
+                gaps.append({'pid': pid, 'reason': 'deleted_author_identity_unknown'})
+                continue
             raise ParseError('missing_author_identity:%s' % pid)
         aq = query(author['href'])
         if not aq.get('uid', '').isdigit():
