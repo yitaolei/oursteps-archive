@@ -3,6 +3,7 @@
 import fcntl, os, subprocess, sys, sqlite3, json, time
 from pathlib import Path
 from studio_local_authority import checked_local_data
+from studio_backfill_performance import classify_performance
 ROOT=Path(__file__).resolve().parents[1]
 DATA=checked_local_data(ROOT/'data')
 if os.environ.get('OURSTEPS_STUDIO_WRITER_HANDOVER_APPROVED')!='1':
@@ -24,28 +25,39 @@ with (DATA/'studio-primary-cycle.lock').open('a+') as lock:
     env.pop('OURSTEPS_NAS_HOST',None);env.pop('OURSTEPS_NAS_PROJECT',None)
     before=metrics();started_at=time.time()
     args=[sys.executable,'scripts/history_worker.py','backfill','--data',str(DATA),'--best-effort','--max-threads','60','--max-minutes','45','--per-thread-page-budget','5']
-    rc=subprocess.run(args,cwd=ROOT,env=env,timeout=3000).returncode
-    after=metrics()
-    # Worker may return 0 for a deliberate access-window pause. Preserve this distinction.
-    reason='unknown'
+    worker_error=None
     try:
-        import json as _json
-        perf=_json.loads((DATA/'backfill-performance.json').read_text())
-        reason=str(perf.get('status','unknown'))
-    except (OSError,ValueError,TypeError): pass
-    if rc != 0:
-        reason='worker_failed_exit_'+str(rc)
-    receipt={'started_at':started_at,'elapsed_seconds':round(time.time()-started_at,2),'before':before,'after':after,'new_complete':after['complete']-before['complete'],'new_snapshots':after['snapshots']-before['snapshots'],'worker_exit':rc,'worker_state':reason}
+        rc=subprocess.run(args,cwd=ROOT,env=env,timeout=3000).returncode
+    except subprocess.TimeoutExpired:
+        rc=None;worker_error='worker_timeout'
+    except OSError as error:
+        rc=None;worker_error='worker_launch_failed'
+        worker_error_detail=type(error).__name__ + ': ' + str(error)
+    returned_at=time.time()
+    try:
+        after=metrics()
+    except (OSError,sqlite3.Error) as error:
+        if not worker_error: raise
+        after=None;metrics_error=type(error).__name__ + ': ' + str(error)
     try:
         perf=json.loads((DATA/'backfill-performance.json').read_text())
-        if abs(float(perf.get('recorded_at',0))-time.time())<1800:
-            receipt['network_fetches']=int(perf.get('performance',{}).get('network_fetches',0))
-            receipt['started_threads']=int(perf.get('started_threads',0))
-    except (OSError,ValueError,TypeError):pass
+    except (OSError,ValueError,TypeError):
+        perf=None
+    if worker_error:
+        reason,stats=worker_error,{}
+    else:
+        reason,stats=classify_performance(perf,started_at,returned_at,rc)
+    receipt={'started_at':started_at,'elapsed_seconds':round(time.time()-started_at,2),'before':before,'after':after,'new_complete':after['complete']-before['complete'] if after else None,'new_snapshots':after['snapshots']-before['snapshots'] if after else None,'worker_exit':rc,'worker_state':reason}
+    receipt.update(stats)
+    if worker_error=='worker_launch_failed':receipt['worker_error_detail']=worker_error_detail
+    if after is None:receipt['metrics_error']=metrics_error
     with (DATA/'studio-backfill-runs.jsonl').open('a',encoding='utf-8') as history:
         history.write(json.dumps(receipt,sort_keys=True)+'\n');history.flush();os.fsync(history.fileno())
     print('BACKFILL_METRICS',json.dumps(receipt),flush=True)
-    if rc: raise SystemExit(rc)
+    if worker_error or rc: raise SystemExit(rc or 1)
+    if reason in ('invalid_current_performance','no_work','halted','interrupted'):
+        print('STUDIO_BACKFILL_ALERT',reason,flush=True)
+        raise SystemExit(1)
     if reason=='manual_priority_yield':
         print('STUDIO_BACKFILL_YIELDED_TO_MANUAL',flush=True)
         raise SystemExit(0)
