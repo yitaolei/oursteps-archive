@@ -15,6 +15,10 @@ check('history_yield', "status='manual_priority_yield'" in (ROOT/'oursteps/histo
 check('manual_lock_wait', 'OURSTEPS_MANUAL_PRIORITY' in (ROOT/'scripts/studio_primary_cycle.py').read_text())
 check('daytime_page_limit', 'page_limit=None if is_overnight else 10' in (ROOT/'oursteps/history.py').read_text())
 check('multi_recovery', 'for round_number in range(3)' in (ROOT/'scripts/studio_manual_sync_worker.py').read_text())
+worker=(ROOT/'scripts/history_worker.py').read_text()
+check('studio_history_guard', 'allow_local_authority(a.data)' in worker and 'SQLite worker must run on NAS native filesystem' not in worker)
+check('history_page_budget_wired', '--per-thread-page-budget' in (ROOT/'scripts/studio_primary_backfill_cycle.py').read_text() and 'per_thread_page_budget=a.per_thread_page_budget' in worker)
+check('backfill_failure_truthful', "reason='worker_failed_exit_'+str(rc)" in (ROOT/'scripts/studio_primary_backfill_cycle.py').read_text())
 try:
  result=subprocess.run(['/usr/sbin/httpd','-f',str(CONF),'-t'],capture_output=True,text=True,timeout=10)
  check('apache_syntax',result.returncode==0)

@@ -33,6 +33,8 @@ with (DATA/'studio-primary-cycle.lock').open('a+') as lock:
         perf=_json.loads((DATA/'backfill-performance.json').read_text())
         reason=str(perf.get('status','unknown'))
     except (OSError,ValueError,TypeError): pass
+    if rc != 0:
+        reason='worker_failed_exit_'+str(rc)
     receipt={'started_at':started_at,'elapsed_seconds':round(time.time()-started_at,2),'before':before,'after':after,'new_complete':after['complete']-before['complete'],'new_snapshots':after['snapshots']-before['snapshots'],'worker_exit':rc,'worker_state':reason}
     try:
         perf=json.loads((DATA/'backfill-performance.json').read_text())

@@ -11,7 +11,12 @@ if a.now and a.mode not in ('discover','backfill','guide-discover'):p.error('--n
 if a.defer_preview and a.mode!='backfill':p.error('--defer-preview requires backfill')
 if a.best_effort and a.mode!='backfill':p.error('--best-effort requires backfill')
 ROOT=Path(__file__).resolve().parents[1];sys.path[:0]=[str(ROOT),str(ROOT/'.deps')]
-if sys.platform=='darwin':raise SystemExit('SQLite worker must run on NAS native filesystem')
+if sys.platform=='darwin':
+ from scripts.studio_local_authority import allow_local_authority
+ if a.data is None: raise SystemExit('Studio worker requires explicit --data')
+ try: allow_local_authority(a.data)
+ except ValueError as error: raise SystemExit('Studio worker refused: '+str(error))
+
 from oursteps.store import Store
 from oursteps.history import discover,backfill,report
 from oursteps.fallback import run as fallback_run
