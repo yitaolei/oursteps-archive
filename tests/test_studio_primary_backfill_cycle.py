@@ -96,6 +96,12 @@ class CycleTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             if state == 'complete': self.assertIn('STUDIO_BACKFILL_ALERT', output)
 
+    def test_historical_challenge_hold_never_publishes(self):
+        code, receipt, calls, _ = self.run_cycle(0, report(recorded=time.time()+1, status='historical_js_challenge_hold', started=0, fetches=0))
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt['worker_state'], 'historical_js_challenge_hold')
+        self.assertEqual(len(calls), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

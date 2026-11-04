@@ -116,7 +116,7 @@ def build_previews(tids):
         detail=(run.stderr or run.stdout).strip().splitlines()[-1:] or ['unknown']
         raise RuntimeError('browser_preview_build_failed:'+detail[0][:200])
 
-def session_result(page,context,saved,urls,historical=False):
+def session_result(page,context,saved,urls,historical=False,historical_guard=False):
     """One serial Chrome session. Only the launcher flushes historical preview."""
     from playwright.sync_api import Error, TimeoutError as PlaywrightTimeoutError
     started=time.monotonic()
@@ -135,6 +135,10 @@ def session_result(page,context,saved,urls,historical=False):
         for index,url in enumerate(urls):
             response=None
             try:
+                if historical_guard:
+                    host,_=deployment()
+                    check=run_group(ssh_argv(host)+[remote_python('scripts/historical_browser_candidates.py','--check-hold')],text=True,timeout=60)
+                    if check.returncode:raise InfrastructureStop('historical_browser_hold_or_check_failed')
                 if importer:
                     importer.ensure_alive()
                 attempted+=1
@@ -230,6 +234,7 @@ def session_result(page,context,saved,urls,historical=False):
 def arguments(argv=None):
     parser=argparse.ArgumentParser()
     parser.add_argument('--historical',action='store_true',help='One streaming session of up to 80 URLs; defer preview to launcher')
+    parser.add_argument('--historical-guard',action='store_true',help='Check historical hold before each legacy browser request')
     parser.add_argument('--follow-tid',type=int,help='After first imported page, query committed NAS continuation pages using same Chrome context')
     parser.add_argument('--follow-limit',type=int,default=4)
     parser.add_argument('urls',nargs='+')
@@ -255,7 +260,7 @@ def main():
         try:
             context=browser.new_context(storage_state={'cookies':saved.get('cookies',[]),'origins':[]},user_agent=AGENT)
             page=context.new_page()
-            result=session_result(page,context,saved,args.urls,historical=args.historical)
+            result=session_result(page,context,saved,args.urls,historical=args.historical,historical_guard=args.historical_guard)
             if (args.follow_tid is not None and args.follow_limit and not result['stop_reason']
                     and not result['handoff_error'] and not result['failed'] and result['imported']==1
                     and not result['complete']):
@@ -268,7 +273,7 @@ def main():
                     try:
                         urls=[x['url'] for x in json.loads(follow.stdout.strip().splitlines()[-1])['items']]
                         if urls and all(int(query(u)['tid'])==args.follow_tid for u in urls):
-                            next_result=session_result(page,context,saved,urls,historical=False)
+                            next_result=session_result(page,context,saved,urls,historical=False,historical_guard=args.historical_guard)
                             for key in ('attempted','imported','complete','partial','count','failed','previewed'):
                                 result[key]+=next_result[key]
                             for key in ('items','failures'):

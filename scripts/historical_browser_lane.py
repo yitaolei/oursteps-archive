@@ -42,7 +42,7 @@ def batch(urls,follow_tid=None,follow_limit=0,allow_partial=False):
     if not urls:return {'status':'empty','complete':0,'imported':0}
     if len(urls)>12:raise ValueError('pilot batch limit')
     runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
-    cmd=[str(runtime),str(ROOT/'scripts/browser_fallback.py')]
+    cmd=[str(runtime),str(ROOT/'scripts/browser_fallback.py'),'--historical-guard']
     if follow_tid is not None:cmd+=['--follow-tid',str(follow_tid),'--follow-limit',str(follow_limit)]
     result=run_group(cmd+list(urls),text=True,timeout=900)
     try:report=json.loads(result.stdout.strip().splitlines()[-1])

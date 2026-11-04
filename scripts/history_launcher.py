@@ -20,6 +20,8 @@ if a.check:
  print(a.mode+': launcher ready (no authentication, network or database opened)');raise SystemExit(0)
 if a.mode=='status':
  raise SystemExit(subprocess.call([sys.executable,str(ROOT/'scripts/backfill_live_status.py'),'--once']))
+if subprocess.call(ssh_argv(host)+[remote_python('scripts/historical_browser_candidates.py','--check-hold')]):
+ raise SystemExit('Historical hold active or unavailable; no source requests made')
 if a.mode!='status' and not (a.mode in ('discover','fallback') and (ROOT/'.secrets/session.json').exists()):
  runtime=Path.home()/'.local/share/oursteps-runtime/bin/python'
  if not runtime.exists():raise SystemExit('Run Authenticate OurSteps.command once to install the authentication runtime')
@@ -64,6 +66,8 @@ try:
                 print('Historical browser candidate query failed; flushing pending preview.',file=sys.stderr)
         except (OSError,subprocess.SubprocessError,ValueError,KeyError,IndexError,TypeError) as exc:
             print('Historical browser fallback unavailable: '+type(exc).__name__,file=sys.stderr)
+        if subprocess.call(ssh_argv(host)+[remote_python('scripts/historical_browser_candidates.py','--check-hold')]):
+            raise SystemExit('Historical hold active or unavailable; preview and publish refused')
         # Browser process has finished; importer closes its Store and worker.lock
         # first. If it is still alive remotely, this nonblocking lock fails closed.
         code=subprocess.call(ssh_argv(host)+[remote_python('archive.py','build-preview','--historical-pending')])

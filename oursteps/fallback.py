@@ -128,6 +128,7 @@ def refine_limited(store,ranges,specials):
     return store.setting('fallback_refine_only')=='1'
 
 def run(store):
+    if store.setting('historical_js_challenge_hold'):return 'historical_js_challenge_hold'
     prepare(store)
     if max(float(store.setting('fallback_pause_until','0')),float(store.setting('pause_until','0')))>time.time():return 'retry_later'
     transport=Transport(store);active=None

@@ -9,7 +9,8 @@ class HistoricalBrowserLaneTests(unittest.TestCase):
         self.db=sqlite3.connect(':memory:')
         self.db.executescript('''CREATE TABLE inventory(tid INTEGER PRIMARY KEY);
         CREATE TABLE threads(tid INTEGER PRIMARY KEY,status TEXT);
-        CREATE TABLE jobs(tid INTEGER,page INTEGER,state TEXT,error TEXT);''')
+        CREATE TABLE jobs(tid INTEGER,page INTEGER,state TEXT,error TEXT);
+        CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);''')
         self.db.executemany('INSERT INTO inventory VALUES(?)',[(1,),(2,),(3,)])
         self.db.executemany('INSERT INTO threads VALUES(?,?)',[(1,'pending'),(2,'complete'),(3,'partial')])
         self.db.execute("INSERT INTO jobs VALUES(3,2,'pending',NULL)")
@@ -17,6 +18,10 @@ class HistoricalBrowserLaneTests(unittest.TestCase):
     def test_unstarted_inventory_only(self):
         result=first_unstarted(self.db,20)
         self.assertEqual([r['tid'] for r in result],[1])
+    def test_hold_blocks_candidates(self):
+        self.db.execute("INSERT INTO settings VALUES('historical_js_challenge_hold','active')")
+        self.assertEqual(first_unstarted(self.db,20),[])
+        self.assertEqual(continuations(self.db,3,20),[])
     def test_continuation_is_due_pending_page(self):
         self.assertEqual([r['page'] for r in continuations(self.db,3,20)],[2])
         self.db.execute("UPDATE jobs SET state='auth_required',error='http_403' WHERE tid=3")

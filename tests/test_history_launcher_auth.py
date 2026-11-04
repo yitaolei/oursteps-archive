@@ -22,6 +22,7 @@ class HistoryLauncherAuthTests(unittest.TestCase):
             return auth_result or subprocess.CompletedProcess(args,0,'auth ok\n','')
         def fake_call(args,**kwargs):
             calls.append((args,kwargs))
+            if '--check-hold' in args[-1]:return 0
             return 2  # Stop after auth; never enter browser/publish path.
         with patch.object(sys,'argv',['history_launcher.py','backfill']), \
              patch('pathlib.Path.exists',return_value=True), \
@@ -36,7 +37,7 @@ class HistoryLauncherAuthTests(unittest.TestCase):
     def test_auth_uses_bounded_process_group(self):
         code,calls=self.run_launcher()
         self.assertEqual(code,2)
-        args,kwargs=calls[0]
+        args,kwargs=calls[1]
         self.assertTrue(str(args[0]).endswith('/.local/share/oursteps-runtime/bin/python'))
         self.assertEqual(args[-1],'auth')
         self.assertEqual(kwargs['timeout'],180)
@@ -47,7 +48,7 @@ class HistoryLauncherAuthTests(unittest.TestCase):
         code,calls=self.run_launcher(
             auth_error=subprocess.TimeoutExpired(['fixture'],180))
         self.assertEqual(code,75)
-        self.assertEqual(len(calls),1)
+        self.assertEqual(len(calls),2)
 
 
 if __name__=='__main__':

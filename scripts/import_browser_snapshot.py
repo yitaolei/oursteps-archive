@@ -112,7 +112,7 @@ def save_snapshot(store,url,content,historical_pending=False):
                 "WHERE j.url=? AND j.tid=? AND j.page=? "
                 "AND j.state IN ('pending','retry_later') "
                 "AND (j.error IS NULL OR j.error='retry_later:incomplete_html') "
-                "AND NOT EXISTS (SELECT 1 FROM settings WHERE key='halt' AND value!='')",
+                "AND NOT EXISTS (SELECT 1 FROM settings WHERE key IN ('halt','historical_js_challenge_hold') AND value!='')",
                 (canonical,tid,parsed['page'])).fetchone():
             raise ValueError('browser_snapshot_not_due_historical_challenge')
         from oursteps.history import _historical_preview_pending, _save_historical_preview_pending
@@ -162,6 +162,8 @@ def serve_stream(store,source,sink,read_timeout=STREAM_READ_TIMEOUT):
     seq=1
     try:
         reader=FramedReader(source,read_timeout)
+        if store.setting('halt') or store.setting('historical_js_challenge_hold'):
+            raise ValueError('historical_browser_hold')
         emit(dict(status='ready',max_bytes=MAX_BYTES))
         while True:
             raw=reader.header()

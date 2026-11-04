@@ -33,8 +33,8 @@ def candidates(historical=False,limit=20):
             # The historical site-wide halt is authoritative for all browser
             # requests as well as urllib. Do not seek a different transport
             # around an active access denial.
-            halted=db.execute("SELECT value FROM settings WHERE key='halt'").fetchone()
-            if halted and halted[0]:
+            halted=db.execute("SELECT 1 FROM settings WHERE key IN ('halt','historical_js_challenge_hold') AND value!='' LIMIT 1").fetchone()
+            if halted:
                 return []
             rows=db.execute(
                 "SELECT j.tid,j.page FROM jobs j "

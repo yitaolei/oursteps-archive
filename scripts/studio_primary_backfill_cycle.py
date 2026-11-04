@@ -55,7 +55,7 @@ with (DATA/'studio-primary-cycle.lock').open('a+') as lock:
         history.write(json.dumps(receipt,sort_keys=True)+'\n');history.flush();os.fsync(history.fileno())
     print('BACKFILL_METRICS',json.dumps(receipt),flush=True)
     if worker_error or rc: raise SystemExit(rc or 1)
-    if reason in ('invalid_current_performance','no_work','halted','interrupted'):
+    if reason in ('invalid_current_performance','no_work','halted','interrupted','historical_js_challenge_hold'):
         print('STUDIO_BACKFILL_ALERT',reason,flush=True)
         raise SystemExit(1)
     if reason=='manual_priority_yield':

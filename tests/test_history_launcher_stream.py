@@ -15,7 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class LauncherStreamTests(unittest.TestCase):
     def launch(self,candidate_code=0,candidate_output=None,fallback_code=0,flush_code=0,
-               runtime_available=True,worker_code=0,mode='backfill',fallback_error=None):
+               runtime_available=True,worker_code=0,mode='backfill',fallback_error=None,hold_check_code=0):
         events=[];runtime_checks=[]
         urls=['https://www.oursteps.com.au/bbs/forum.php?mod=viewthread&tid=%s&page=1'%tid for tid in range(1,81)]
         def exists(path):
@@ -35,6 +35,9 @@ class LauncherStreamTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv,fallback_code)
             raise AssertionError('Unexpected subprocess: '+repr(argv))
         def call(argv,**kwargs):
+            if '--check-hold' in argv[-1]:
+                events.append(('hold-check',argv))
+                return hold_check_code[len([e for e in events if e[0]=='hold-check'])-1] if isinstance(hold_check_code,list) else hold_check_code
             if 'history_worker.py' in argv[-1]:
                 events.append(('worker',argv));return worker_code
             if '--historical-pending' in argv[-1]:
@@ -50,13 +53,13 @@ class LauncherStreamTests(unittest.TestCase):
     def test_single_query_80_single_session_then_flush_then_publish(self):
         code,events=self.launch()
         self.assertEqual(code,0)
-        self.assertEqual([e[0] for e in events],['auth','worker','candidates','browser','flush','publish'])
-        self.assertIn('--defer-preview',events[1][1][-1])
-        self.assertIn('--historical --limit 80',events[2][1][-1])
-        browser=events[3][1]
+        self.assertEqual([e[0] for e in events],['hold-check','auth','worker','candidates','browser','hold-check','flush','publish'])
+        self.assertIn('--defer-preview',events[2][1][-1])
+        self.assertIn('--historical --limit 80',events[3][1][-1])
+        browser=events[4][1]
         self.assertIn('--historical',browser)
         self.assertEqual(len(browser[browser.index('--historical')+1:]),80)
-        self.assertIn('archive.py build-preview --historical-pending',events[4][1][-1])
+        self.assertIn('archive.py build-preview --historical-pending',events[6][1][-1])
 
     def test_candidate_failure_malformed_or_runtime_missing_still_flushes(self):
         for kwargs in (dict(candidate_code=1),dict(candidate_output=''),dict(candidate_output='null'),
@@ -64,7 +67,7 @@ class LauncherStreamTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs):
                 code,events=self.launch(**kwargs)
                 self.assertEqual(code,0)
-                self.assertEqual([e[0] for e in events],['auth','worker','candidates','flush','publish'])
+                self.assertEqual([e[0] for e in events],['hold-check','auth','worker','candidates','hold-check','flush','publish'])
 
     def test_browser_stop_handoff_error_or_timeout_still_flushes(self):
         for kwargs in (dict(fallback_code=2),dict(fallback_error=subprocess.TimeoutExpired('fixture',1)),dict(fallback_error=OSError('unavailable'))):
@@ -82,12 +85,23 @@ class LauncherStreamTests(unittest.TestCase):
     def test_worker_failure_blocks_browser_flush_publish(self):
         code,events=self.launch(worker_code=2)
         self.assertEqual(code,2)
-        self.assertEqual([e[0] for e in events],['auth','worker'])
+        self.assertEqual([e[0] for e in events],['hold-check','auth','worker'])
+
+    def test_hold_blocks_auth_and_worker(self):
+        code,events=self.launch(hold_check_code=1)
+        self.assertIn('Historical hold',code)
+        self.assertEqual([e[0] for e in events],['hold-check'])
+
+    def test_new_hold_blocks_flush_and_publish(self):
+        code,events=self.launch(hold_check_code=[0,1])
+        self.assertIn('preview and publish refused',code)
+        self.assertEqual(events[-1][0],'hold-check')
+        self.assertNotIn('publish',[e[0] for e in events])
 
     def test_other_modes_do_not_defer_preview(self):
         code,events=self.launch(mode='guide-discover')
         self.assertEqual(code,0)
-        self.assertEqual([e[0] for e in events],['auth','worker'])
+        self.assertEqual([e[0] for e in events],['hold-check','auth','worker'])
         self.assertNotIn('--defer-preview',events[-1][1][-1])
 
 

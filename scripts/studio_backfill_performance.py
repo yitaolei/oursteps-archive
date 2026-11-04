@@ -3,7 +3,7 @@ import math
 
 
 VALID_STATUSES = {'complete', 'success', 'partial', 'budget_reached', 'halted',
-                  'waiting_window', 'manual_priority_yield', 'interrupted'}
+                  'waiting_window', 'manual_priority_yield', 'interrupted', 'historical_js_challenge_hold'}
 
 
 def classify_performance(perf, started_at, returned_at, worker_exit):
@@ -23,7 +23,7 @@ def classify_performance(perf, started_at, returned_at, worker_exit):
             or type(fetches) is not int or fetches < 0):
         return 'invalid_current_performance', {}
     stats = {'started_threads': started, 'network_fetches': fetches}
-    if status in ('halted', 'interrupted'):
+    if status in ('halted', 'interrupted', 'historical_js_challenge_hold'):
         return status, stats
     if status not in ('waiting_window', 'manual_priority_yield') and started == 0 and fetches == 0:
         return 'no_work', stats

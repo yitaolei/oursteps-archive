@@ -86,6 +86,16 @@ class StoreStreamTests(unittest.TestCase):
         self.assertEqual(self.store.setting('historical_preview_pending_tids'),f'[{TID}]')
         self.assertFalse(self.store.db.in_transaction)
 
+    def test_historical_hold_refuses_before_ready(self):
+        self.store.set_setting('historical_js_challenge_hold','active')
+        with patch.object(candidates,'ROOT',self.root),patch.object(sys,'platform','linux'):
+            self.assertEqual(candidates.candidates(historical=True,limit=80),[])
+        code,lines=self.run_stream(frame(1,1))
+        self.assertEqual(code,2)
+        self.assertEqual([x['status'] for x in lines],['error'])
+        self.assertIn('historical_browser_hold',lines[0]['error'])
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM pages').fetchone()[0],0)
+
     def test_invalid_frames_fail_closed_after_prior_commit(self):
         invalid=[frame(2,2,seq=True),frame(3,2),frame(2,2,protocol=2),
                  frame(2,2,protocol=True),frame(2,2,url='https://example.org/'),
@@ -132,7 +142,7 @@ class StoreStreamTests(unittest.TestCase):
         self.store.set_setting('halt','historical_global_auth_or_challenge')
         code,lines=self.run_stream(frame(1,1))
         self.assertEqual(code,2)
-        self.assertIn('not_due_historical_challenge',lines[-1]['error'])
+        self.assertIn('historical_browser_hold',lines[-1]['error'])
         with self.assertRaises(Exception):
             importer.save_snapshot(self.store,URLS[0],b'<html>no account</html>')
 

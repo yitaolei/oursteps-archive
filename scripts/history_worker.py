@@ -33,6 +33,7 @@ try:
    else:
     state=discover(s,now=a.now) if a.mode=='discover' else (backfill(s,now=a.now,best_effort=a.best_effort,max_threads=a.max_threads,max_minutes=a.max_minutes,defer_preview=a.defer_preview,per_thread_page_budget=a.per_thread_page_budget) if a.mode=='backfill' else (fallback_run(s) if a.mode=='fallback' else 'status'))
     print(json.dumps(dict(report(s),run_state=state),ensure_ascii=False,indent=2))
+    if a.mode=='backfill' and state=='historical_js_challenge_hold':raise SystemExit(2)
   finally:s.db.close()
 except KeyboardInterrupt:print('Paused. Committed progress is preserved; run the same command again.')
 except BlockingIOError:raise SystemExit('Another archive worker is running. Try again later.')

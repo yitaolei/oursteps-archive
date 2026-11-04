@@ -7,12 +7,14 @@ sys.path[:0]=[str(ROOT),str(ROOT/'.deps')]
 from oursteps.parser import thread_url
 
 def first_unstarted(db,limit):
+    if historical_hold(db):return []
     rows=db.execute('''SELECT i.tid FROM inventory i JOIN threads t ON t.tid=i.tid
         WHERE t.status='pending' AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.tid=i.tid)
         ORDER BY i.tid DESC LIMIT ?''',(limit,)).fetchall()
     return [dict(tid=tid,url=thread_url(tid,1),page=1) for (tid,) in rows]
 
 def continuations(db,tid,limit):
+    if historical_hold(db):return []
     rows=db.execute('''SELECT j.page FROM jobs j JOIN inventory i ON i.tid=j.tid
         JOIN threads t ON t.tid=i.tid
         WHERE j.tid=? AND t.status!='complete' AND j.state='pending'
@@ -24,6 +26,7 @@ def continuations(db,tid,limit):
     return [dict(tid=tid,url=thread_url(tid,page),page=page) for (page,) in rows]
 
 def resumable(db,limit):
+    if historical_hold(db):return []
     rows=db.execute("""SELECT DISTINCT j.tid FROM jobs j
         JOIN inventory i ON i.tid=j.tid JOIN threads t ON t.tid=i.tid
         WHERE t.status='partial' AND j.state='pending' AND j.page>1 AND j.error IS NULL
@@ -32,6 +35,9 @@ def resumable(db,limit):
                OR denied.error LIKE '%http_403%' OR denied.error LIKE '%http_429%'))
         ORDER BY j.tid DESC LIMIT ?""",(limit,)).fetchall()
     return [dict(tid=tid,url=thread_url(tid,1),page=0) for (tid,) in rows]
+
+def historical_hold(db):
+    return bool(db.execute("SELECT 1 FROM settings WHERE key IN ('halt','historical_js_challenge_hold') AND value!='' LIMIT 1").fetchone())
 
 def counts(db):
     rows=db.execute("""SELECT t.status,count(*) FROM inventory i
@@ -42,11 +48,14 @@ def counts(db):
 
 def main():
     if sys.platform=='darwin':raise SystemExit('Historical candidate query must run on NAS')
-    p=argparse.ArgumentParser();p.add_argument('--tid',type=int);p.add_argument('--resume',action='store_true');p.add_argument('--counts',action='store_true');p.add_argument('--limit',type=int,default=10);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--tid',type=int);p.add_argument('--resume',action='store_true');p.add_argument('--counts',action='store_true');p.add_argument('--check-hold',action='store_true');p.add_argument('--limit',type=int,default=10);a=p.parse_args()
     if not 1<=a.limit<=100:p.error('limit 1..100')
     db=sqlite3.connect('file:'+str(ROOT/'data/archive.sqlite3')+'?mode=ro',uri=True)
     try:
-        if a.counts:
+        if a.check_hold:
+            if historical_hold(db):raise SystemExit('historical_browser_hold')
+            print(json.dumps({'hold':False}))
+        elif a.counts:
             print(json.dumps({'counts':counts(db),'read_only':True},separators=(',',':')))
         else:
             rows=continuations(db,a.tid,a.limit) if a.tid else (resumable(db,a.limit) if a.resume else first_unstarted(db,a.limit))

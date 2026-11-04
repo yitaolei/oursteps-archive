@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 from urllib.error import URLError
-from .fetch import Fetcher, OutsideWindow, NotFound, RateLimited
+from .fetch import Fetcher, OutsideWindow, NotFound, RateLimited, HistoricalJSChallenge
 from .parser import Blocked, Busy, parse_discovery, parse_thread, query
 from .store import Store, atomic_write
 
@@ -31,6 +31,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
         raise ValueError('per-thread page budget must be a positive integer')
     if store.setting('halt') and not offline:
         return 'halted'
+    if getattr(store,'historical_mode',False) and not offline and store.setting('historical_js_challenge_hold'):
+        return 'historical_js_challenge_hold'
     pause_key,streak_key=backoff_keys(store)
     with store.db:
         run_id = store.db.execute('INSERT INTO runs(started_at,status) VALUES(?,"running")',
@@ -129,6 +131,8 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                 from .performance import measure
                 parsed = measure(store, 'parse_seconds', parse_thread, store.raw(snap),parse_url)
                 store.save_page(parse_url,parsed,snap)
+                if getattr(store,'historical_mode',False) and not offline and job['kind']=='thread':
+                    store.set_setting('historical_js_challenge_evidence','')
                 if canonical != transport_url:
                     with store.db:
                         store.db.execute("UPDATE jobs SET state='success',error=? WHERE url=?",
@@ -142,6 +146,26 @@ def run(store, offline=False, wait=False, tids=None, fetcher_override=None, dead
                     store.set_setting(pause_key, 0)
                     store.historical_auth_streak = 0
                 logging.info('parsed tid=%s page=%s author_posts=%s',job['tid'],job['page'],len(parsed['posts']))
+            except HistoricalJSChallenge as e:
+                store.fail(job,'historical_js_challenge',retry=True)
+                now=time.time()
+                try:
+                    saved=json.loads(store.setting('historical_js_challenge_evidence','[]') or '[]')
+                    evidence={str(item['tid']):item for item in saved
+                              if isinstance(item,dict) and type(item.get('tid')) is int
+                              and type(item.get('at')) in (int,float) and 0 <= now-item['at'] <= 3600}
+                except (ValueError,TypeError,KeyError):
+                    evidence={}
+                evidence[str(job['tid'])]={'tid':job['tid'],'page':job['page'],
+                                           'body_bytes':e.body_bytes,'sha256':e.sha256,'at':now}
+                evidence=dict(list(evidence.items())[-3:])
+                store.set_setting('historical_js_challenge_evidence',json.dumps(list(evidence.values()),sort_keys=True))
+                status='retry_later'
+                if len(evidence)>=3:
+                    store.set_setting('historical_js_challenge_hold',json.dumps(
+                        {'recorded_at':time.time(),'evidence':list(evidence.values())},sort_keys=True))
+                    status='historical_js_challenge_hold'
+                break
             except VerificationIssue as e:
                 state='retry_later' if e.retry else ('auth_required' if e.category=='auth_required' else 'parse_error')
                 store.fail(job,e.category+':'+e.reason,retry=e.retry,state=state,retry_after=e.retry_after)

@@ -10,6 +10,7 @@ from pathlib import Path
 from email.utils import parsedate_to_datetime
 import os
 import re
+import hashlib
 import time
 import urllib.error
 import urllib.request
@@ -19,6 +20,29 @@ from .parser import BASE, Blocked, Busy, query, soup_of, guard, NotFound
 
 AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 OurStepsPersonalArchive/0.1'
 ROBOTS_AGENT = 'OurStepsPersonalArchive'
+
+def historical_js_challenge(body):
+    """Match only the observed bare, closed single-script response shape."""
+    if not isinstance(body, bytes) or not 2048 <= len(body) <= 8192:
+        return False
+    match = re.fullmatch(rb'\s*<script\b[^<>]*>(.*?)</script\s*>\s*', body, re.I | re.S)
+    if not match or len(match.group(1)) <= 1024:
+        return False
+    script = match.group(1)
+    if re.search(rb'<\s*/?\s*[a-z][^>]*>', script, re.I):
+        return False
+    # Strip comments while retaining quoted strings, so a comment containing
+    # "location" or a fake assignment cannot be mistaken for executable code.
+    tokens = re.compile(rb'''("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(//[^\r\n]*|/\*[\s\S]*?(?:\*/|$))''')
+    code = tokens.sub(lambda m: b'VALUE' if m.group(1) else b' ', script)
+    return bool(re.search(rb'\blocation\b', code, re.I)
+                and re.search(rb'\b(?:var|let|const|function|if|for|while|return)\b', code))
+
+class HistoricalJSChallenge(Exception):
+    def __init__(self, body):
+        self.body_bytes = len(body)
+        self.sha256 = hashlib.sha256(body).hexdigest()
+        super().__init__('historical_js_challenge')
 
 def safe_denial_record(status, url, headers, body):
     """An allowlisted, cookie-free record for an HTTP refusal; never log raw HTML."""
@@ -301,6 +325,10 @@ class Fetcher:
                 raise Busy('http_%s' % status)
             if status != 200:
                 raise Blocked('http_%s' % status)
+            if (getattr(self.store, 'historical_mode', False)
+                    and query(url).get('tid', '').isdigit()
+                    and historical_js_challenge(body)):
+                raise HistoricalJSChallenge(body)
             if len(body) > 5*1024*1024:
                 raise Blocked('response_size_limit')
             ct = response.headers.get('Content-Type', '')

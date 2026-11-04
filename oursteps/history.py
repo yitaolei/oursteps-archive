@@ -127,25 +127,30 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
     started=0
     from .cli import run
     prepare(store)
-    if not store.db.execute('SELECT 1 FROM inventory LIMIT 1').fetchone():return 'inventory_empty: run discovery first'
+    held=bool(store.setting('historical_js_challenge_hold'))
+    if not held and not store.db.execute('SELECT 1 FROM inventory LIMIT 1').fetchone():return 'inventory_empty: run discovery first'
     # Migrate only the old blanket redirect stop; preserve other global safeguards.
     old_halt=store.setting('halt')
-    if re.fullmatch(r'http_(301|302|303|307|308); redirect/auth/rate-limit not followed',old_halt or ''):
+    if not held and re.fullmatch(r'http_(301|302|303|307|308); redirect/auth/rate-limit not followed',old_halt or ''):
         with store.db:
             store.db.execute("UPDATE jobs SET state='pending',error='reauth_fetch',retry_at=0 WHERE error=? AND tid IN (SELECT tid FROM inventory)",(old_halt,))
         store.set_setting('halt','')
-    if store.setting('halt'):return 'halted: inspect existing halt before retrying'
-    if best_effort:store.set_setting('backfill_mode','BEST_EFFORT')
+    if not held and store.setting('halt'):return 'halted: inspect existing halt before retrying'
+    if best_effort and not held:store.set_setting('backfill_mode','BEST_EFFORT')
     preview_pending=_historical_preview_pending(store)
     from .performance import Performance
     previous_performance=getattr(store,'performance',None)
     performance=Performance();store.performance=performance
     perf_started=time.monotonic()
     completed_before=store.db.execute("SELECT count(*) FROM inventory i JOIN threads t ON t.tid=i.tid WHERE t.status='complete'").fetchone()[0]
-    status='complete';fetch=Fetcher(store);fetch.daily_now=now
+    status='complete'
     # Page limit extension applies only inside this explicit historical worker.
     store.historical_mode=True
     try:
+        if store.setting('historical_js_challenge_hold'):
+            status='historical_js_challenge_hold'
+            return status
+        fetch=Fetcher(store);fetch.daily_now=now
         tids=_historical_candidates(store,time.time())
         from .auth import STATE
         verified=json.loads(STATE.read_text()).get('verified_at',0) if STATE.exists() else 0
@@ -187,7 +192,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
             if per_thread_page_budget is not None:limits['per_thread_page_budget']=per_thread_page_budget
             status=run(store,tids=[tid],fetcher_override=fetch,**limits)
             if status=='budget_reached':break
-            if status in ('halted','waiting_window') or store.setting('halt'):break
+            if status in ('halted','waiting_window','historical_js_challenge_hold') or store.setting('halt'):break
             pause_until = float(store.setting('historical_pause_until','0'))
             if pause_until > time.time():
                 # Historical backfill is intended to run unattended.
@@ -217,6 +222,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         perf_report=dict(
             recorded_at=time.time(),
             status=status,
+            worker_state=status,
             crawl_elapsed_seconds=round(max(0,time.monotonic()-perf_started),6),
             max_threads=max_threads,
             max_minutes=max_minutes,
@@ -238,7 +244,7 @@ def backfill(store,now=False,best_effort=False,max_threads=None,max_minutes=None
         preview_started=time.monotonic()
         preview_result=None;preview_error=None
         try:
-            if not defer_preview:
+            if not defer_preview and status!='historical_js_challenge_hold':
                 preview_result=flush_historical_previews(store)
         except Exception as error:
             preview_error=type(error).__name__+': '+str(error)
