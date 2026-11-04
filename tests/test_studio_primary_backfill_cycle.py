@@ -38,9 +38,24 @@ class ClassificationTests(unittest.TestCase):
         for state in ('waiting_window', 'manual_priority_yield', 'halted', 'interrupted'):
             self.assertEqual(classify_performance(report(status=state, started=0, fetches=0), 100, 110, 0)[0], state)
 
+    def test_nonzero_hold_requires_current_valid_matching_report(self):
+        hold = report(105, 'historical_js_challenge_hold', 3, 7)
+        self.assertEqual(classify_performance(hold, 100, 110, 2),
+                         ('historical_js_challenge_hold', {'started_threads': 3, 'network_fetches': 7}))
+        for value in (None, report(99, 'historical_js_challenge_hold'),
+                      report(110.01, 'historical_js_challenge_hold'), report(105, 'complete'),
+                      report(105, 'historical_js_challenge_hold', True, 2),
+                      report(105, 'historical_js_challenge_hold', 1, -1)):
+            with self.subTest(value=value):
+                self.assertEqual(classify_performance(value, 100, 110, 2), ('worker_failed_exit_2', {}))
+        self.assertEqual(classify_performance(hold, 100, 110, 1), ('worker_failed_exit_1', {}))
+        for stamp in (100, 110):
+            self.assertEqual(classify_performance(report(stamp, 'historical_js_challenge_hold'), 100, 110, 2)[0],
+                             'historical_js_challenge_hold')
+
 
 class CycleTests(unittest.TestCase):
-    def run_cycle(self, result, perf):
+    def run_cycle(self, result, perf, current=False):
         with tempfile.TemporaryDirectory() as directory:
             data = Path(directory)
             db = sqlite3.connect(data / 'archive.sqlite3')
@@ -51,6 +66,8 @@ class CycleTests(unittest.TestCase):
             calls = []
             def worker(*args, **kwargs):
                 calls.append(args[0])
+                if current:
+                    (data / 'backfill-performance.json').write_text(json.dumps({**perf, 'recorded_at': time.time()}))
                 if isinstance(result, Exception):
                     raise result
                 return subprocess.CompletedProcess(args[0], result if len(calls) == 1 else 23)
@@ -100,6 +117,14 @@ class CycleTests(unittest.TestCase):
         code, receipt, calls, _ = self.run_cycle(0, report(recorded=time.time()+1, status='historical_js_challenge_hold', started=0, fetches=0))
         self.assertEqual(code, 1)
         self.assertEqual(receipt['worker_state'], 'historical_js_challenge_hold')
+        self.assertEqual(len(calls), 1)
+
+    def test_nonzero_challenge_hold_receipt_never_publishes(self):
+        code, receipt, calls, _ = self.run_cycle(2, report(status='historical_js_challenge_hold', started=3, fetches=7), current=True)
+        self.assertEqual(code, 2)
+        self.assertEqual(receipt['worker_exit'], 2)
+        self.assertEqual(receipt['worker_state'], 'historical_js_challenge_hold')
+        self.assertEqual((receipt['started_threads'], receipt['network_fetches']), (3, 7))
         self.assertEqual(len(calls), 1)
 
 

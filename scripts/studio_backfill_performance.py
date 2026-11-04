@@ -7,21 +7,22 @@ VALID_STATUSES = {'complete', 'success', 'partial', 'budget_reached', 'halted',
 
 
 def classify_performance(perf, started_at, returned_at, worker_exit):
-    if worker_exit != 0:
+    if worker_exit not in (0, 2):
         return 'worker_failed_exit_' + str(worker_exit), {}
     if not isinstance(perf, dict):
-        return 'invalid_current_performance', {}
+        return ('worker_failed_exit_2' if worker_exit == 2 else 'invalid_current_performance'), {}
     recorded = perf.get('recorded_at')
     status = perf.get('status')
     started = perf.get('started_threads')
     performance = perf.get('performance')
     fetches = performance.get('network_fetches') if isinstance(performance, dict) else None
     if (type(recorded) not in (int, float) or not math.isfinite(recorded)
-            or not started_at <= recorded <= returned_at + 2
+            or not started_at <= recorded <= returned_at + (2 if worker_exit == 0 else 0)
             or not isinstance(status, str) or status not in VALID_STATUSES
+            or (worker_exit == 2 and status != 'historical_js_challenge_hold')
             or type(started) is not int or started < 0
             or type(fetches) is not int or fetches < 0):
-        return 'invalid_current_performance', {}
+        return ('worker_failed_exit_2' if worker_exit == 2 else 'invalid_current_performance'), {}
     stats = {'started_threads': started, 'network_fetches': fetches}
     if status in ('halted', 'interrupted', 'historical_js_challenge_hold'):
         return status, stats
